@@ -380,7 +380,7 @@ function renderSummaryTab(locked) {
   }).join("");
 
   const menuTotals = currentMenus.map(m =>
-    DAYS.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
+    summaryDays.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
   );
   const grandTotal = menuTotals.reduce((s,v) => s+v, 0);
 
