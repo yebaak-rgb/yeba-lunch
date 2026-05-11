@@ -230,11 +230,11 @@ function render() {
 
   // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
-  cb.style.display = isAdmin ? "" : "none";
+  cb.style.display = isAdmin && !locked ? "" : "none";
+  ub.style.display = isAdmin && locked  ? "" : "none";
+  cb.textContent = "이번 주 확정";
   const bt = document.getElementById("billingTab");
   if (bt) bt.style.display = isAdmin ? "" : "none";
-  cb.disabled = locked;
-  cb.textContent = locked ? "✓ 확정 완료" : "이번 주 확정";
 
   renderInputTab(locked);
   renderSummaryTab(locked);
@@ -425,7 +425,7 @@ window.renderBillingTab = async function() {
   const totalAmt = totalQty > 0 ? (totalQty*PRICE).toLocaleString()+"원" : "-";
 
   document.getElementById("billingTable").innerHTML = `
-    <table class="s-table">
+    <table class="s-table" style="max-width:360px">
       <thead><tr>
         <th style="text-align:left;padding-left:10px">일자</th>
         <th style="text-align:center">개수</th>
