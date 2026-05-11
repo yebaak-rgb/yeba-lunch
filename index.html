@@ -66,6 +66,7 @@ let currentWeekKey = null;
 let currentDay  = DAYS[0];
 let unsubscribe = null;
 let weekData    = {};   // Firestore에서 실시간으로 내려오는 전체 데이터
+let allWeeksCache = {}; // 모든 주차 데이터 캐시 (정산용)
 
 // ─── 주차 계산 ───────────────────────────────────────────────
 function getWeeksOf2026() {
@@ -132,6 +133,7 @@ function subscribeWeek() {
   unsubscribe = onSnapshot(ref, snap => {
     weekData = snap.exists() ? snap.data() : { locked: false, orders: {} };
     if (!weekData.orders) weekData.orders = {};
+    allWeeksCache[currentWeekKey] = weekData;
     render();
   });
 }
@@ -334,6 +336,104 @@ function renderSummaryTab(locked) {
         </tr>
       </tbody>
     </table>`;
+
+  // 월별 정산 (관리자만)
+  const billingEl = document.getElementById("monthlyBilling");
+  if (isAdmin) {
+    billingEl.style.display = "";
+    renderMonthlyBilling();
+  } else {
+    billingEl.style.display = "none";
+  }
+}
+
+function renderMonthlyBilling() {
+  const PRICE = 7000;
+  const monthNames = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+
+  // 모든 주차를 월별로 그룹핑
+  const monthMap = {};
+  WEEKS.forEach((w, i) => {
+    const mon = w.mon || getMondayOfWeek(w.key);
+    if (!mon) return;
+    const m = mon.getMonth();
+    if (!monthMap[m]) monthMap[m] = [];
+    monthMap[m].push({ label: `${mon.getMonth()+1}월 ${mon.getDate()}일`, key: w.key, mon });
+  });
+
+  // state에서 각 주차 총 수량 계산
+  let allRows = "";
+  let grandQty = 0;
+
+  Object.keys(monthMap).sort((a,b)=>a-b).forEach(m => {
+    const weeks = monthMap[m];
+    let monthQty = 0;
+    let weekRows = "";
+
+    weeks.forEach(w => {
+      const wData = allWeeksCache[w.key];
+      if (!wData || !wData.orders) {
+        weekRows += `<tr>
+          <td class="td-label" style="padding-left:16px">${w.label}일</td>
+          <td>0</td><td>-</td>
+        </tr>`;
+        return;
+      }
+      const qty = DEPTS_LIST().reduce((s, dept) =>
+        s + DAYS.reduce((s2, d) =>
+          s2 + MENUS.reduce((s3, menu) =>
+            s3 + (wData.orders[dept]?.[d]?.[menu] || 0), 0), 0), 0);
+      monthQty += qty;
+      const amt = qty > 0 ? (qty * PRICE).toLocaleString() : "-";
+      weekRows += `<tr>
+        <td class="td-label" style="padding-left:16px">${w.label}일</td>
+        <td>${qty || ""}</td>
+        <td style="text-align:right;padding-right:10px">${qty > 0 ? amt+"원" : "-"}</td>
+      </tr>`;
+    });
+
+    grandQty += monthQty;
+    const monthAmt = monthQty > 0 ? (monthQty * PRICE).toLocaleString()+"원" : "-";
+    allRows += `
+      <tr class="tr-month-header">
+        <td class="td-label">${monthNames[m]}</td>
+        <td>${monthQty || ""}</td>
+        <td style="text-align:right;padding-right:10px;font-weight:500">${monthAmt}</td>
+      </tr>
+      ${weekRows}`;
+  });
+
+  const grandAmt = grandQty > 0 ? (grandQty * PRICE).toLocaleString()+"원" : "-";
+
+  document.getElementById("monthlyTable").innerHTML = `
+    <table class="s-table" style="min-width:280px">
+      <thead><tr>
+        <th style="text-align:left;padding-left:10px">일자</th>
+        <th>개수</th>
+        <th style="text-align:right;padding-right:10px">금액</th>
+      </tr></thead>
+      <tbody>
+        ${allRows}
+        <tr class="tr-total">
+          <td class="td-label">합계</td>
+          <td>${grandQty||""}</td>
+          <td style="text-align:right;padding-right:10px">${grandAmt}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function getMondayOfWeek(weekKey) {
+  const match = weekKey.match(/(\d{4})-W(\d{2})/);
+  if (!match) return null;
+  const year = parseInt(match[1]);
+  const week = parseInt(match[2]);
+  const jan4 = new Date(year, 0, 4);
+  const startOfWeek1 = new Date(jan4);
+  startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() || 7) - 1));
+  const mon = new Date(startOfWeek1);
+  mon.setDate(startOfWeek1.getDate() + (week - 1) * 7);
+  return mon;
 }
 
 function DEPTS_LIST() { return [...new Set(Object.values(DEPT_MAP))]; }
@@ -590,6 +690,7 @@ select {
 .cal-today  { outline: 1.5px solid var(--border2); }
 .cal-locked { opacity: 0.5; }
 .cal-hint   { font-size: 11px; color: var(--text3); margin-top: 8px; display: flex; align-items: center; gap: 4px; }
+.tr-month-header td { background: var(--bg2); font-weight: 500; font-size: 13px; }
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   background: var(--bg); border: 0.5px solid var(--border2);
@@ -660,6 +761,11 @@ select {
     <div class="dept-chips" id="deptStatus"></div>
     <p class="section-label">요일별 집계</p>
     <div style="overflow-x:auto" id="summaryTable"></div>
+    <div id="monthlyBilling" style="display:none">
+      <div style="border-top:0.5px solid var(--border);margin:1.5rem 0"></div>
+      <p class="section-label">월별 정산 <span style="color:var(--text3);font-size:12px">(1개 × 7,000원)</span></p>
+      <div style="overflow-x:auto" id="monthlyTable"></div>
+    </div>
     <div class="action-bar">
       <button id="confirmBtn" style="display:none">이번 주 확정</button>
     </div>
