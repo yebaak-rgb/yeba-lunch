@@ -98,20 +98,11 @@ const WEEKS = getWeeksOf2026();
 
 // ─── DOM 준비 후 실행 ────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  // 주차 셀렉트 채우기
-  const sel = document.getElementById("weekSel");
-  WEEKS.forEach((w, i) => {
-    const o = document.createElement("option");
-    o.value = i; o.textContent = w.label; sel.appendChild(o);
-  });
+  // 달력 초기화
   const todayIdx = getCurrentWeekIdx(WEEKS);
-  sel.value = todayIdx;
-  currentWeekKey = WEEKS[todayIdx].key;
-
-  sel.addEventListener("change", e => {
-    currentWeekKey = WEEKS[parseInt(e.target.value)].key;
-    subscribeWeek();
-  });
+  curWeekIdx = todayIdx >= 0 ? todayIdx : 0;
+  currentWeekKey = WEEKS[curWeekIdx].key;
+  renderCalendar();
 
   // 로그인 상태 감지
   onAuthStateChanged(auth, user => {
@@ -228,6 +219,7 @@ function render() {
   document.getElementById("statusBadge").innerHTML   = locked
     ? '<i class="ti ti-lock"></i> 확정됨'
     : '<i class="ti ti-lock-open"></i> 입력 중';
+  renderCalendar();
 
   // 확정 버튼 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
@@ -344,7 +336,76 @@ function renderSummaryTab(locked) {
     </table>`;
 }
 
-function DEPTS_LIST() { return Object.values(DEPT_MAP); }
+function DEPTS_LIST() { return [...new Set(Object.values(DEPT_MAP))]; }
+
+let curWeekIdx = 0;
+let calYear = 2026;
+let calMonth = (new Date()).getMonth(); // 0-based
+
+function renderCalendar() {
+  const wrap = document.getElementById("calendarWrap");
+  if (!wrap) return;
+
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay  = new Date(calYear, calMonth + 1, 0);
+  const monthNames = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+
+  let cells = "";
+  // 빈칸 (1일 전 요일만큼)
+  let startDow = firstDay.getDay(); // 0=일
+  // 월요일 시작으로 조정
+  startDow = (startDow === 0) ? 6 : startDow - 1;
+  for (let i = 0; i < startDow; i++) cells += `<div class="cal-cell empty"></div>`;
+
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(calYear, calMonth, d);
+    const dow  = date.getDay(); // 0=일, 1=월
+    const isMonday = dow === 1;
+    // 이 날짜가 속한 주의 weekKey 계산
+    const wk = isMonday ? `2026-W${String(getISOWeek(date)).padStart(2,"0")}` : null;
+    const isSelected = wk === currentWeekKey;
+    const isToday = date.toDateString() === new Date().toDateString();
+    const locked = wk ? (weekData && weekData.locked) : false;
+
+    let cls = "cal-cell";
+    if (!isMonday) cls += " cal-disabled";
+    if (isMonday)  cls += " cal-monday";
+    if (isSelected && isMonday) cls += " cal-selected";
+    if (isToday)   cls += " cal-today";
+    if (locked && isMonday) cls += " cal-locked";
+
+    const onclick = isMonday ? `onclick="selectWeekByMonday(${calYear},${calMonth},${d})"` : "";
+    cells += `<div class="${cls}" ${onclick}>${d}</div>`;
+  }
+
+  wrap.innerHTML = `
+    <div class="cal-wrap">
+      <div class="cal-header">
+        <button class="cal-nav" onclick="shiftMonth(-1)"><i class="ti ti-chevron-left"></i></button>
+        <span class="cal-month">${calYear}년 ${monthNames[calMonth]}</span>
+        <button class="cal-nav" onclick="shiftMonth(1)"><i class="ti ti-chevron-right"></i></button>
+      </div>
+      <div class="cal-dow-row">
+        ${["월","화","수","목","금","토","일"].map(d=>`<div class="cal-dow">${d}</div>`).join("")}
+      </div>
+      <div class="cal-grid">${cells}</div>
+      <p class="cal-hint"><i class="ti ti-info-circle"></i> 월요일을 클릭해 해당 주 수량을 입력하세요</p>
+    </div>`;
+}
+
+window.shiftMonth = function(delta) {
+  calMonth += delta;
+  if (calMonth < 0)  { calMonth = 11; calYear--; }
+  if (calMonth > 11) { calMonth = 0;  calYear++; }
+  renderCalendar();
+};
+
+window.selectWeekByMonday = function(y, m, d) {
+  const date = new Date(y, m, d);
+  const wk = `2026-W${String(getISOWeek(date)).padStart(2,"0")}`;
+  currentWeekKey = wk;
+  subscribeWeek();
+};
 
 // ─── 토스트 ──────────────────────────────────────────────────
 function toast(msg) {
@@ -510,6 +571,25 @@ select {
 .notice-danger { background: var(--red-bg);   color: var(--red-tx); }
 .notice-warn   { background: var(--amber-bg); color: var(--amber-tx); }
 
+.cal-wrap {
+  background: var(--bg2); border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg); padding: 14px; margin-bottom: 1.25rem;
+}
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-month  { font-size: 15px; font-weight: 500; }
+.cal-nav    { background: none; border: 0.5px solid var(--border2); border-radius: var(--radius); width: 28px; height: 28px; cursor: pointer; color: var(--text); display: flex; align-items: center; justify-content: center; }
+.cal-nav:hover { background: var(--bg3); }
+.cal-dow-row { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 4px; }
+.cal-dow    { text-align: center; font-size: 11px; color: var(--text3); padding: 4px 0; }
+.cal-grid   { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+.cal-cell   { text-align: center; padding: 7px 2px; font-size: 13px; border-radius: var(--radius); color: var(--text3); }
+.cal-disabled { color: var(--text3); }
+.cal-monday { color: var(--text); cursor: pointer; font-weight: 500; }
+.cal-monday:hover { background: var(--bg3); }
+.cal-selected { background: var(--text) !important; color: var(--bg) !important; }
+.cal-today  { outline: 1.5px solid var(--border2); }
+.cal-locked { opacity: 0.5; }
+.cal-hint   { font-size: 11px; color: var(--text3); margin-top: 8px; display: flex; align-items: center; gap: 4px; }
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   background: var(--bg); border: 0.5px solid var(--border2);
@@ -544,12 +624,12 @@ select {
   <div class="top-bar">
     <span class="title">🍱 점심 수량 관리</span>
     <div class="controls">
-      <select id="weekSel"></select>
       <span id="statusBadge" class="badge badge-open">
         <i class="ti ti-lock-open"></i> 입력 중
       </span>
     </div>
   </div>
+  <div id="calendarWrap"></div>
 
   <div class="user-row">
     <span class="user-info">
