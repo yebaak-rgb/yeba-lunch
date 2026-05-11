@@ -225,6 +225,8 @@ function render() {
     ? '<i class="ti ti-lock"></i> 확정됨'
     : '<i class="ti ti-lock-open"></i> 입력 중';
   renderCalendar();
+  const dw = document.getElementById("adminDeptWrap");
+  if (dw) dw.style.display = isAdmin ? "" : "none";
 
   // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
@@ -244,9 +246,31 @@ function renderInputTab(locked) {
       `<div class="notice notice-warn"><i class="ti ti-alert-circle"></i> 등록되지 않은 계정입니다. 관리자에게 문의하세요.</div>`;
     return;
   }
-  if (locked) {
+
+  // 관리자: 부서 선택 드롭다운
+  const deptSel = document.getElementById("adminDeptSel");
+  if (isAdmin && deptSel) {
+    deptSel.style.display = "";
+    if (deptSel.options.length === 0) {
+      DEPTS_LIST().forEach(d => {
+        const o = document.createElement("option");
+        o.value = d; o.textContent = d; deptSel.appendChild(o);
+      });
+      deptSel.value = currentDept || "기획실";
+    }
+    currentDept = deptSel.value;
+  }
+
+  if (locked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
+    renderMyWeekTable();
+    return;
+  }
+
+  if (locked && isAdmin) {
+    document.getElementById("inputArea").innerHTML =
+      `<div class="notice notice-warn"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정하세요.</div>`;
     renderMyWeekTable();
     return;
   }
@@ -432,6 +456,11 @@ function getMondayOfWeek(weekKey) {
 }
 
 function DEPTS_LIST() { return [...new Set(Object.values(DEPT_MAP))]; }
+
+window.onAdminDeptChange = function(val) {
+  currentDept = val;
+  render();
+};
 
 let curWeekIdx = 0;
 let calYear = 2026;
@@ -652,6 +681,12 @@ select {
 }
 #confirmBtn:hover:not(:disabled) { opacity: 0.85; }
 #confirmBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+#unlockBtn {
+  flex: 1; padding: 10px; background: var(--amber-bg); border: none;
+  border-radius: var(--radius); color: var(--amber-tx); font-size: 14px;
+  cursor: pointer; font-weight: 500;
+}
+#unlockBtn:hover { opacity: 0.85; }
 
 /* ── 공통 ── */
 .notice {
@@ -737,6 +772,10 @@ select {
 
   <!-- 입력 탭 -->
   <div id="tab-input">
+    <div style="display:none;margin-bottom:1rem" id="adminDeptWrap">
+      <p class="section-label">부서 선택 (관리자)</p>
+      <select id="adminDeptSel" style="display:none" onchange="onAdminDeptChange(this.value)"></select>
+    </div>
     <p class="section-label">요일 선택</p>
     <div class="day-tabs" id="dayTabs"></div>
     <p class="section-label" id="menuLabel"></p>
@@ -754,6 +793,7 @@ select {
 
     <div class="action-bar">
       <button id="confirmBtn" style="display:none">이번 주 확정</button>
+      <button id="unlockBtn" style="display:none" onclick="unlockWeek()">수정 잠금 해제</button>
     </div>
   </div>
 </div>
