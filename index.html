@@ -159,7 +159,7 @@ async function confirmWeek() {
   toast("✓ 확정 완료. 수정이 잠겼습니다.");
 }
 
-async function unlockWeek() {
+window.unlockWeek = async function() {
   if (!isAdmin) return;
   if (!confirm("확정을 해제하고 수정 가능 상태로 되돌리겠습니까?")) return;
   const ref = doc(db, "weeks", currentWeekKey);
@@ -170,7 +170,7 @@ async function unlockWeek() {
     await setDoc(ref, { locked: false, orders: {} });
   }
   toast("잠금이 해제되었습니다. 수정 가능합니다.");
-}
+};
 
 // ─── 헬퍼 ────────────────────────────────────────────────────
 function getQty(dept, day, menu) {
@@ -285,9 +285,10 @@ function renderInputTab(locked) {
 
   if (wLocked && isAdmin) {
     document.getElementById("inputArea").innerHTML =
-      `<div class="notice notice-warn"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정하세요.</div>`;
-    renderMyWeekTable();
-    return;
+      `<div class="notice notice-warn" style="margin-bottom:1rem"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정 가능합니다.</div>`;
+    // 메뉴카드는 계속 렌더 (잠금 해제 후 바로 수정 가능하도록)
+  } else {
+    document.getElementById("inputArea").innerHTML = "";
   }
 
   // 요일 탭
@@ -815,9 +816,11 @@ select {
 
   <!-- 정산 탭 -->
   <div id="tab-billing" style="display:none">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
-      <select id="billingMonthSel" onchange="renderBillingTab()"></select>
-      <span style="font-size:12px;color:var(--text2)">1개 × 7,000원</span>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:1rem">
+      <div style="display:flex;align-items:center;gap:8px">
+        <select id="billingMonthSel" onchange="renderBillingTab()"></select>
+        <span style="font-size:12px;color:var(--text2)">1개 × 7,000원</span>
+      </div>
     </div>
     <div id="billingTable" style="display:flex;justify-content:center"></div>
   </div>
