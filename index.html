@@ -230,9 +230,10 @@ function render() {
 
   // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
-  cb.style.display = isAdmin && !locked ? "" : "none";
-  ub.style.display = isAdmin && locked  ? "" : "none";
-  cb.textContent = "이번 주 확정";
+  const ub = document.getElementById("unlockBtn");
+  const locked2 = weekData.locked || false;
+  if (cb) { cb.style.display = isAdmin && !locked2 ? "" : "none"; cb.textContent = "이번 주 확정"; }
+  if (ub) ub.style.display = isAdmin && locked2 ? "" : "none";
   const bt = document.getElementById("billingTab");
   if (bt) bt.style.display = isAdmin ? "" : "none";
 
@@ -261,14 +262,15 @@ function renderInputTab(locked) {
     currentDept = deptSel.value;
   }
 
-  if (locked && !isAdmin) {
+  const wLocked = weekData.locked || false;
+  if (wLocked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
     renderMyWeekTable();
     return;
   }
 
-  if (locked && isAdmin) {
+  if (wLocked && isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-warn"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정하세요.</div>`;
     renderMyWeekTable();
