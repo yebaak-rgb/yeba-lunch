@@ -49,7 +49,8 @@ const ADMIN_EMAILS = [
 ];
 
 // ─── 상수 ────────────────────────────────────────────────────
-const MENUS = ["일반도시락", "샐러드", "김밥", "볶음밥"];
+const DEFAULT_MENUS = ["일반도시락", "샐러드", "김밥", "볶음밥"];
+let currentMenus = [...DEFAULT_MENUS];
 const DAYS  = ["월", "화", "수", "목", "금"];
 
 // ─── Firebase 초기화 ────────────────────────────────────────
@@ -134,6 +135,7 @@ function subscribeWeek() {
   unsubscribe = onSnapshot(ref, snap => {
     weekData = snap.exists() ? snap.data() : { locked: false, orders: {} };
     if (!weekData.orders) weekData.orders = {};
+    currentMenus = (weekData.menus && weekData.menus.length > 0) ? weekData.menus : [...DEFAULT_MENUS];
     allWeeksCache[currentWeekKey] = weekData;
     render();
   });
@@ -240,6 +242,7 @@ function render() {
   renderCalendar();
   const dw = document.getElementById("adminDeptWrap");
   if (dw) dw.style.display = isAdmin ? "" : "none";
+  if (isAdmin) renderMenuEditor();
 
   // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
@@ -297,7 +300,7 @@ function renderInputTab(locked) {
   ).join("");
 
   // 메뉴 카드
-  document.getElementById("menuGrid").innerHTML = MENUS.map(m => `
+  document.getElementById("menuGrid").innerHTML = currentMenus.map(m => `
     <div class="menu-card">
       <p class="menu-label">${m}</p>
       <div class="qty-control">
@@ -317,7 +320,7 @@ function renderMyWeekTable() {
   if (!el) return;
   // 행=요일, 열=메뉴
   const rows = DAYS.map(d => {
-    const vals = MENUS.map(m => getQty(dept, d, m));
+    const vals = currentMenus.map(m => getQty(dept, d, m));
     const total = vals.reduce((s,v)=>s+v,0);
     return `<tr>
       <td class="td-label">${d}</td>
@@ -325,14 +328,14 @@ function renderMyWeekTable() {
       <td class="td-total">${total||""}</td>
     </tr>`;
   }).join("");
-  const colTotals = MENUS.map(m => DAYS.reduce((s,d)=>s+getQty(dept,d,m),0));
+  const colTotals = currentMenus.map(m => DAYS.reduce((s,d)=>s+getQty(dept,d,m),0));
   const grand = colTotals.reduce((s,v)=>s+v,0);
   el.innerHTML = `
     <p class="section-label" style="margin-top:1.5rem">${dept} 이번 주 입력 현황</p>
     <div style="overflow-x:auto">
     <table class="s-table">
       <thead><tr>
-        <th>요일</th>${MENUS.map(m=>`<th>${m}</th>`).join("")}<th>합계</th>
+        <th>요일</th>${currentMenus.map(m=>`<th>${m}</th>`).join("")}<th>합계</th>
       </tr></thead>
       <tbody>
         ${rows}
@@ -353,7 +356,7 @@ function renderSummaryTab(locked) {
   ).join("");
 
   const rows = DAYS.map(d => {
-    const vals = MENUS.map(m => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
+    const vals = currentMenus.map(m => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
     const total = vals.reduce((s,v) => s+v, 0);
     return `<tr>
       <td class="td-label">${d}</td>
@@ -362,7 +365,7 @@ function renderSummaryTab(locked) {
     </tr>`;
   }).join("");
 
-  const menuTotals = MENUS.map(m =>
+  const menuTotals = currentMenus.map(m =>
     DAYS.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
   );
   const grandTotal = menuTotals.reduce((s,v) => s+v, 0);
@@ -370,7 +373,7 @@ function renderSummaryTab(locked) {
   document.getElementById("summaryTable").innerHTML = `
     <table class="s-table">
       <thead><tr>
-        <th>요일</th>${MENUS.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
+        <th>요일</th>${currentMenus.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
       </tr></thead>
       <tbody>
         ${rows}
@@ -427,7 +430,7 @@ window.renderBillingTab = async function() {
     const wData = allWeeksCache[w.key];
     const qty = wData ? DEPTS_LIST().reduce((s, dept) =>
       s + DAYS.reduce((s2, d) =>
-        s2 + MENUS.reduce((s3, menu) =>
+        s2 + currentMenus.reduce((s3, menu) =>
           s3 + (wData.orders?.[dept]?.[d]?.[menu] || 0), 0), 0), 0) : 0;
     totalQty += qty;
     const label = `${w.mon.getMonth()+1}월 ${w.mon.getDate()}일`;
@@ -478,6 +481,54 @@ window.onAdminDeptChange = function(val) {
   render();
 };
 
+function renderMenuEditor() {
+  const wrap = document.getElementById("menuEditorWrap");
+  if (!wrap) return;
+  const menus = currentMenus;
+  let html = menus.map((m, i) => `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <input type="text" value="${m}" id="menuInput_${i}"
+        style="flex:1;height:32px;padding:0 8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px"
+        placeholder="메뉴명 입력">
+      <button onclick="removeMenu(${i})" style="width:28px;height:28px;border:0.5px solid var(--border2);border-radius:var(--radius);background:none;color:var(--text2);cursor:pointer;font-size:16px">×</button>
+    </div>`).join("");
+  if (menus.length < 5) {
+    html += `<button onclick="addMenu()" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:none;color:var(--text2);cursor:pointer;margin-bottom:8px">+ 메뉴 추가</button>`;
+  }
+  html += `<button onclick="saveMenus()" style="display:block;width:100%;padding:8px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:13px;cursor:pointer;font-weight:500">메뉴 저장</button>`;
+  wrap.innerHTML = html;
+}
+
+window.addMenu = function() {
+  if (currentMenus.length >= 5) return;
+  currentMenus.push("");
+  renderMenuEditor();
+};
+
+window.removeMenu = function(i) {
+  currentMenus.splice(i, 1);
+  renderMenuEditor();
+  render();
+};
+
+window.saveMenus = async function() {
+  const inputs = currentMenus.map((_, i) => {
+    const el = document.getElementById("menuInput_" + i);
+    return el ? el.value.trim() : "";
+  }).filter(v => v.length > 0);
+  if (inputs.length === 0) { toast("메뉴를 1개 이상 입력해주세요."); return; }
+  currentMenus = inputs;
+  const ref = doc(db, "weeks", currentWeekKey);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, { menus: currentMenus });
+  } else {
+    await setDoc(ref, { locked: false, orders: {}, menus: currentMenus });
+  }
+  toast("메뉴가 저장되었습니다.");
+  render();
+};
+
 let curWeekIdx = 0;
 let calYear = 2026;
 let calMonth = (new Date()).getMonth(); // 0-based
@@ -501,6 +552,7 @@ function renderCalendar() {
     const date = new Date(calYear, calMonth, d);
     const dow  = date.getDay(); // 0=일, 1=월
     const isMonday = dow === 1;
+    const isSaturday = dow === 6;
     // 이 날짜가 속한 주의 weekKey 계산
     const wk = isMonday ? `2026-W${String(getISOWeek(date)).padStart(2,"0")}` : null;
     const isSelected = wk === currentWeekKey;
@@ -510,6 +562,7 @@ function renderCalendar() {
     let cls = "cal-cell";
     if (!isMonday) cls += " cal-disabled";
     if (isMonday)  cls += " cal-monday";
+    if (isSaturday) cls += " cal-sat";
     if (isSelected && isMonday) cls += " cal-selected";
     if (isToday)   cls += " cal-today";
     if (locked && isMonday) cls += " cal-locked";
@@ -526,7 +579,7 @@ function renderCalendar() {
         <button class="cal-nav" onclick="shiftMonth(1)"><i class="ti ti-chevron-right"></i></button>
       </div>
       <div class="cal-dow-row">
-        ${["월","화","수","목","금","토","일"].map(d=>`<div class="cal-dow">${d}</div>`).join("")}
+        ${["월","화","수","목","금","토","일"].map((d,i)=>`<div class="cal-dow${i===5?' cal-dow-sat':''}">${d}</div>`).join("")}
       </div>
       <div class="cal-grid">${cells}</div>
       <p class="cal-hint"><i class="ti ti-info-circle"></i> 월요일을 클릭해 해당 주 수량을 입력하세요</p>
@@ -651,7 +704,7 @@ select {
 
 /* ── 입력 탭 ── */
 .section-label { font-size: 13px; color: var(--text2); margin-bottom: 8px; }
-.day-tabs { display: flex; gap: 6px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.day-tabs { display: flex; gap: 6px; margin-bottom: 1.25rem; flex-wrap: wrap; justify-content: center; }
 .day-btn {
   padding: 6px 14px; font-size: 13px;
   border: 0.5px solid var(--border); border-radius: var(--radius);
@@ -684,7 +737,7 @@ select {
   border: 0.5px solid var(--border); font-weight: 500; font-size: 12px; color: var(--text2);
 }
 .s-table td { padding: 8px 6px; text-align: center; border: 0.5px solid var(--border); }
-.td-label { text-align: left !important; padding-left: 10px !important; }
+.td-label { text-align: center !important; }
 .td-total { font-weight: 500; }
 .tr-total td { background: var(--bg2); font-weight: 500; }
 
@@ -731,6 +784,8 @@ select {
 .cal-today  { outline: 1.5px solid var(--border2); }
 .cal-locked { opacity: 0.5; }
 .cal-hint   { font-size: 10px; color: var(--text3); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+.cal-dow-sat { color: #3b82f6 !important; }
+.cal-sat    { color: #3b82f6 !important; }
 .tr-month-header td { background: var(--bg2); font-weight: 500; font-size: 13px; }
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -790,7 +845,9 @@ select {
   <div id="tab-input">
     <div style="display:none;margin-bottom:1rem" id="adminDeptWrap">
       <p class="section-label">부서 선택 (관리자)</p>
-      <select id="adminDeptSel" style="display:none" onchange="onAdminDeptChange(this.value)"></select>
+      <select id="adminDeptSel" style="display:none;margin-bottom:12px" onchange="onAdminDeptChange(this.value)"></select>
+      <p class="section-label">이번 주 메뉴 설정 <span style="color:var(--text3);font-size:11px">(최대 5개)</span></p>
+      <div id="menuEditorWrap"></div>
     </div>
     <p class="section-label">요일 선택</p>
     <div class="day-tabs" id="dayTabs"></div>
