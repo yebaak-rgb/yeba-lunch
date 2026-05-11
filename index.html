@@ -117,8 +117,8 @@ document.addEventListener("DOMContentLoaded", () => {
   onAuthStateChanged(auth, user => {
     currentUser = user;
     if (user) {
-      currentDept = DEPT_MAP[user.email] || null;
       isAdmin     = ADMIN_EMAILS.includes(user.email);
+      currentDept = DEPT_MAP[user.email] || (isAdmin ? "기획실" : null);
       showApp();
       subscribeWeek();
     } else {
@@ -201,7 +201,9 @@ window.selectDay = function(d) { currentDay = d; render(); };
 
 // ─── 수량 변경 ───────────────────────────────────────────────
 window.changeQty = async function(menu, delta) {
-  if (!currentDept) { toast("등록되지 않은 계정입니다."); return; }
+  const dept = currentDept || (isAdmin ? "기획실" : null);
+  if (!dept) { toast("등록되지 않은 계정입니다."); return; }
+  currentDept = dept;
   if (weekData.locked) { toast("확정된 주입니다. 수정 불가."); return; }
   const cur = getQty(currentDept, currentDay, menu);
   const nv  = Math.max(0, cur + delta);
@@ -306,38 +308,37 @@ function renderMyWeekTable() {
 }
 
 function renderSummaryTab(locked) {
-  // 부서별 입력 현황
-  document.getElementById("deptStatus").innerHTML = Object.entries(DEPT_MAP).map(([email, dept]) =>
+  const uniqueDepts = [...new Set(Object.values(DEPT_MAP))];
+  document.getElementById("deptStatus").innerHTML = uniqueDepts.map(dept =>
     `<span class="badge ${deptHasData(dept) ? "badge-open" : "badge-muted"}">${dept} ${deptHasData(dept) ? "✓" : "미입력"}</span>`
   ).join("");
 
-  // 집계표
-  const rows = MENUS.map(m => {
-    const vals = DAYS.map(d => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
-    const total = vals.reduce((s, v) => s + v, 0);
+  const rows = DAYS.map(d => {
+    const vals = MENUS.map(m => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
+    const total = vals.reduce((s,v) => s+v, 0);
     return `<tr>
-      <td class="td-label">${m}</td>
-      ${vals.map(v => `<td>${v || ""}</td>`).join("")}
-      <td class="td-total">${total || ""}</td>
+      <td class="td-label">${d}</td>
+      ${vals.map(v => `<td>${v||""}</td>`).join("")}
+      <td class="td-total">${total||""}</td>
     </tr>`;
   }).join("");
 
-  const dayTotals = DAYS.map(d =>
-    MENUS.reduce((s, m) => s + DEPTS_LIST().reduce((s2, dept) => s2 + getQty(dept, d, m), 0), 0)
+  const menuTotals = MENUS.map(m =>
+    DAYS.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
   );
-  const grandTotal = dayTotals.reduce((s, v) => s + v, 0);
+  const grandTotal = menuTotals.reduce((s,v) => s+v, 0);
 
   document.getElementById("summaryTable").innerHTML = `
     <table class="s-table">
       <thead><tr>
-        <th>메뉴</th>${DAYS.map(d => `<th>${d}</th>`).join("")}<th>합계</th>
+        <th>요일</th>${MENUS.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
       </tr></thead>
       <tbody>
         ${rows}
         <tr class="tr-total">
           <td class="td-label">합계</td>
-          ${dayTotals.map(v => `<td>${v || ""}</td>`).join("")}
-          <td class="td-total">${grandTotal || ""}</td>
+          ${menuTotals.map(v => `<td>${v||""}</td>`).join("")}
+          <td class="td-total">${grandTotal||""}</td>
         </tr>
       </tbody>
     </table>`;
