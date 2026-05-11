@@ -66,8 +66,9 @@ let isAdmin     = false;
 let currentWeekKey = null;
 let currentDay  = DAYS[0];
 let unsubscribe = null;
-let weekData    = {};   // Firestore에서 실시간으로 내려오는 전체 데이터
-let allWeeksCache = {}; // 모든 주차 데이터 캐시 (정산용)
+let weekData    = {};
+let allWeeksCache = {};
+let isSaturdayMode = false;
 
 // ─── 주차 계산 ───────────────────────────────────────────────
 function getWeeksOf2026() {
@@ -135,7 +136,11 @@ function subscribeWeek() {
   unsubscribe = onSnapshot(ref, snap => {
     weekData = snap.exists() ? snap.data() : { locked: false, orders: {} };
     if (!weekData.orders) weekData.orders = {};
-    currentMenus = (weekData.menus && weekData.menus.length > 0) ? weekData.menus : [...DEFAULT_MENUS];
+    if (isSaturdayMode) {
+      currentMenus = (weekData.satMenus && weekData.satMenus.length > 0) ? weekData.satMenus : [...DEFAULT_MENUS];
+    } else {
+      currentMenus = (weekData.menus && weekData.menus.length > 0) ? weekData.menus : [...DEFAULT_MENUS];
+    }
     allWeeksCache[currentWeekKey] = weekData;
     render();
   });
@@ -238,11 +243,17 @@ function render() {
   document.getElementById("statusBadge").className   = "badge " + (locked ? "badge-locked" : "badge-open");
   document.getElementById("statusBadge").innerHTML   = locked
     ? '<i class="ti ti-lock"></i> 확정됨'
-    : '<i class="ti ti-lock-open"></i> 입력 중';
+    : isSaturdayMode
+      ? '<i class="ti ti-calendar-week"></i> 토요일 입력'
+      : '<i class="ti ti-lock-open"></i> 입력 중';
   renderCalendar();
   const dw = document.getElementById("adminDeptWrap");
   if (dw) dw.style.display = isAdmin ? "" : "none";
-  if (isAdmin) renderMenuEditor();
+  if (isAdmin) {
+    const lbl = document.getElementById("menuSetLabel");
+    if (lbl) lbl.innerHTML = (isSaturdayMode ? "토요일 메뉴 설정" : "이번 주 메뉴 설정") + ' <span style="color:var(--text3);font-size:11px">(최대 5개)</span>';
+    renderMenuEditor();
+  }
 
   // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
@@ -295,8 +306,9 @@ function renderInputTab(locked) {
   }
 
   // 요일 탭
-  document.getElementById("dayTabs").innerHTML = DAYS.map(d =>
-    `<button class="day-btn${d === currentDay ? " active" : ""}" onclick="selectDay('${d}')">${d}요일</button>`
+  const tabDays = isSaturdayMode ? ["토"] : DAYS;
+  document.getElementById("dayTabs").innerHTML = tabDays.map(d =>
+    `<button class="day-btn${d === currentDay ? " active" : ""}${d==="토"?" day-btn-sat":""}" onclick="selectDay('${d}')">${d}요일</button>`
   ).join("");
 
   // 메뉴 카드
@@ -428,8 +440,9 @@ window.renderBillingTab = async function() {
 
   weeksInMonth.forEach(w => {
     const wData = allWeeksCache[w.key];
+    const WEEKDAYS = ["월","화","수","목","금"];
     const qty = wData ? DEPTS_LIST().reduce((s, dept) =>
-      s + DAYS.reduce((s2, d) =>
+      s + WEEKDAYS.reduce((s2, d) =>
         s2 + currentMenus.reduce((s3, menu) =>
           s3 + (wData.orders?.[dept]?.[d]?.[menu] || 0), 0), 0), 0) : 0;
     totalQty += qty;
@@ -520,10 +533,11 @@ window.saveMenus = async function() {
   currentMenus = inputs;
   const ref = doc(db, "weeks", currentWeekKey);
   const snap = await getDoc(ref);
+  const menuKey = isSaturdayMode ? "satMenus" : "menus";
   if (snap.exists()) {
-    await updateDoc(ref, { menus: currentMenus });
+    await updateDoc(ref, { [menuKey]: currentMenus });
   } else {
-    await setDoc(ref, { locked: false, orders: {}, menus: currentMenus });
+    await setDoc(ref, { locked: false, orders: {}, [menuKey]: currentMenus });
   }
   toast("메뉴가 저장되었습니다.");
   render();
@@ -555,7 +569,8 @@ function renderCalendar() {
     const isSaturday = dow === 6;
     // 이 날짜가 속한 주의 weekKey 계산
     const wk = isMonday ? `2026-W${String(getISOWeek(date)).padStart(2,"0")}` : null;
-    const isSelected = wk === currentWeekKey;
+    const isSatSelected = isSaturdayMode && dow === 6 && wk === currentWeekKey;
+    const isSelected = (!isSaturdayMode && isMonday && wk === currentWeekKey) || isSatSelected;
     const isToday = date.toDateString() === new Date().toDateString();
     const locked = wk ? (weekData && weekData.locked) : false;
 
@@ -567,7 +582,9 @@ function renderCalendar() {
     if (isToday)   cls += " cal-today";
     if (locked && isMonday) cls += " cal-locked";
 
-    const onclick = isMonday ? `onclick="selectWeekByMonday(${calYear},${calMonth},${d})"` : "";
+    let onclick = "";
+    if (isMonday) onclick = `onclick="selectWeekByMonday(${calYear},${calMonth},${d})"`;
+    else if (isSaturday) onclick = `onclick="selectSaturday(${calYear},${calMonth},${d})"`;
     cells += `<div class="${cls}" ${onclick}>${d}</div>`;
   }
 
@@ -597,6 +614,19 @@ window.selectWeekByMonday = function(y, m, d) {
   const date = new Date(y, m, d);
   const wk = `2026-W${String(getISOWeek(date)).padStart(2,"0")}`;
   currentWeekKey = wk;
+  currentDay = "월";
+  isSaturdayMode = false;
+  subscribeWeek();
+};
+
+window.selectSaturday = function(y, m, d) {
+  const date = new Date(y, m, d);
+  // 토요일이 속한 주의 월요일 찾기 (토요일 - 5일)
+  const mon = new Date(date); mon.setDate(date.getDate() - 5);
+  const wk = `2026-W${String(getISOWeek(mon)).padStart(2,"0")}`;
+  currentWeekKey = wk;
+  currentDay = "토";
+  isSaturdayMode = true;
   subscribeWeek();
 };
 
@@ -785,7 +815,9 @@ select {
 .cal-locked { opacity: 0.5; }
 .cal-hint   { font-size: 10px; color: var(--text3); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
 .cal-dow-sat { color: #3b82f6 !important; }
-.cal-sat    { color: #3b82f6 !important; }
+.cal-sat    { color: #3b82f6 !important; cursor: pointer; font-weight: 500; }
+.day-btn-sat { border-color: #3b82f6 !important; color: #3b82f6 !important; }
+.day-btn-sat.active { background: #3b82f6 !important; color: #fff !important; border-color: #3b82f6 !important; }
 .tr-month-header td { background: var(--bg2); font-weight: 500; font-size: 13px; }
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -846,7 +878,7 @@ select {
     <div style="display:none;margin-bottom:1rem" id="adminDeptWrap">
       <p class="section-label">부서 선택 (관리자)</p>
       <select id="adminDeptSel" style="display:none;margin-bottom:12px" onchange="onAdminDeptChange(this.value)"></select>
-      <p class="section-label">이번 주 메뉴 설정 <span style="color:var(--text3);font-size:11px">(최대 5개)</span></p>
+      <p class="section-label" id="menuSetLabel">이번 주 메뉴 설정 <span style="color:var(--text3);font-size:11px">(최대 5개)</span></p>
       <div id="menuEditorWrap"></div>
     </div>
     <p class="section-label">요일 선택</p>
