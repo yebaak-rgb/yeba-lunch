@@ -330,8 +330,8 @@ function renderMyWeekTable() {
   if (!dept) return;
   const el = document.getElementById("myWeekTable");
   if (!el) return;
-  // 행=요일, 열=메뉴
-  const rows = DAYS.map(d => {
+  const tableDays = isSaturdayMode ? ["토"] : DAYS;
+  const rows = tableDays.map(d => {
     const vals = currentMenus.map(m => getQty(dept, d, m));
     const total = vals.reduce((s,v)=>s+v,0);
     return `<tr>
@@ -340,10 +340,11 @@ function renderMyWeekTable() {
       <td class="td-total">${total||""}</td>
     </tr>`;
   }).join("");
-  const colTotals = currentMenus.map(m => DAYS.reduce((s,d)=>s+getQty(dept,d,m),0));
+  const colTotals = currentMenus.map(m => tableDays.reduce((s,d)=>s+getQty(dept,d,m),0));
   const grand = colTotals.reduce((s,v)=>s+v,0);
+  const modeLabel = isSaturdayMode ? "토요일" : "이번 주";
   el.innerHTML = `
-    <p class="section-label" style="margin-top:1.5rem">${dept} 이번 주 입력 현황</p>
+    <p class="section-label" style="margin-top:1.5rem">${dept} ${modeLabel} 입력 현황</p>
     <div style="overflow-x:auto">
     <table class="s-table">
       <thead><tr>
@@ -367,7 +368,8 @@ function renderSummaryTab(locked) {
     `<span class="badge ${deptHasData(dept) ? "badge-open" : "badge-muted"}">${dept} ${deptHasData(dept) ? "✓" : "미입력"}</span>`
   ).join("");
 
-  const rows = DAYS.map(d => {
+  const summaryDays = isSaturdayMode ? ["토"] : DAYS;
+  const rows = summaryDays.map(d => {
     const vals = currentMenus.map(m => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
     const total = vals.reduce((s,v) => s+v, 0);
     return `<tr>
@@ -540,7 +542,22 @@ window.saveMenus = async function() {
     await setDoc(ref, { locked: false, orders: {}, [menuKey]: currentMenus });
   }
   toast("메뉴가 저장되었습니다.");
-  render();
+  renderMenuEditor();
+  renderMyWeekTable();
+  // 요일탭/메뉴카드 갱신
+  const tabDays2 = isSaturdayMode ? ["토"] : DAYS;
+  document.getElementById("dayTabs").innerHTML = tabDays2.map(d =>
+    `<button class="day-btn${d === currentDay ? " active" : ""}${d==="토"?" day-btn-sat":""}" onclick="selectDay('${d}')">${d}요일</button>`
+  ).join("");
+  document.getElementById("menuGrid").innerHTML = currentMenus.map(m => `
+    <div class="menu-card">
+      <p class="menu-label">${m}</p>
+      <div class="qty-control">
+        <button class="qty-btn" onclick="changeQty('${m}',-1)">−</button>
+        <span class="qty-val" id="q_${m}">${getQty(currentDept, currentDay, m)}</span>
+        <button class="qty-btn" onclick="changeQty('${m}',1)">+</button>
+      </div>
+    </div>`).join("");
 };
 
 let curWeekIdx = 0;
