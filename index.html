@@ -71,11 +71,12 @@ let allWeeksCache = {}; // 모든 주차 데이터 캐시 (정산용)
 // ─── 주차 계산 ───────────────────────────────────────────────
 function getWeeksOf2026() {
   const weeks = [];
-  let d = new Date(2026, 0, 5); // 2026-01-05 월요일
+  let d = new Date(2026, 0, 5);
   while (d.getFullYear() === 2026) {
     weeks.push({
       label: `${d.getMonth() + 1}월 ${d.getDate()}일 주`,
       key:   `2026-W${String(getISOWeek(d)).padStart(2, "0")}`,
+      mon:   new Date(d),
     });
     d.setDate(d.getDate() + 7);
   }
@@ -346,14 +347,13 @@ function renderSummaryTab(locked) {
 function initBillingMonthSel() {
   const sel = document.getElementById("billingMonthSel");
   if (!sel || sel.options.length > 0) return;
-  const months = [...new Set(WEEKS.map(w => w.mon.getMonth()))];
   const names = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+  const months = [...new Set(WEEKS.filter(w => w.mon).map(w => w.mon.getMonth()))];
   months.forEach(m => {
     const o = document.createElement("option");
     o.value = m; o.textContent = `2026년 ${names[m]}`;
     sel.appendChild(o);
   });
-  // 현재 월로 기본 선택
   sel.value = new Date().getMonth();
 }
 
@@ -366,7 +366,7 @@ window.renderBillingTab = async function() {
   document.getElementById("billingTable").innerHTML =
     `<p style="color:var(--text2);font-size:13px;padding:1rem 0">불러오는 중...</p>`;
 
-  const weeksInMonth = WEEKS.filter(w => w.mon.getMonth() === targetMonth);
+  const weeksInMonth = WEEKS.filter(w => w.mon && w.mon.getMonth() === targetMonth);
 
   // 캐시에 없는 주차는 Firestore에서 fetch
   await Promise.all(weeksInMonth.map(async w => {
