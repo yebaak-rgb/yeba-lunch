@@ -135,12 +135,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 버튼 이벤트
   document.getElementById("loginBtn").addEventListener("click", () => {
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-    if (isMobile) {
-      signInWithRedirect(auth, provider).catch(e => toast("로그인 실패: " + e.message));
-    } else {
-      signInWithPopup(auth, provider).catch(e => toast("로그인 실패: " + e.message));
-    }
+    signInWithPopup(auth, provider).catch(e => {
+      // 팝업이 차단된 경우에만 redirect로 fallback
+      if (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user") {
+        signInWithRedirect(auth, provider).catch(e2 => toast("로그인 실패: " + e2.message));
+      } else {
+        toast("로그인 실패: " + e.message);
+      }
+    });
   });
   document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
   document.getElementById("confirmBtn").addEventListener("click", confirmWeek);
