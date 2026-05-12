@@ -380,8 +380,45 @@ function renderSummaryTab(locked) {
 }
 
 function renderWeekdaySummary() {
+  const l1 = document.getElementById("summaryLabel1");
+  const l2 = document.getElementById("summaryLabel2");
+  if (l1) { l1.style.display = ""; l1.textContent = "부서별 집계"; }
+  if (l2) l2.textContent = "요일별 집계";
+  const depts = DEPTS_LIST();
+
+  // ① 부서별 표 (행=메뉴, 열=부서) - 전체 주간 합산
+  const deptRows = currentMenus.map(m => {
+    const vals = depts.map(dept => DAYS.reduce((s,d) => s + getQty(dept,d,m), 0));
+    const total = vals.reduce((s,v) => s+v, 0);
+    return `<tr>
+      <td class="td-label">${m}</td>
+      ${vals.map(v => `<td>${v||""}</td>`).join("")}
+      <td class="td-total">${total||""}</td>
+    </tr>`;
+  }).join("");
+  const deptTotals = depts.map(dept =>
+    currentMenus.reduce((s,m) => s + DAYS.reduce((s2,d) => s2 + getQty(dept,d,m), 0), 0)
+  );
+  const deptGrand = deptTotals.reduce((s,v) => s+v, 0);
+
+  document.getElementById("summaryTableByDept").innerHTML = `
+    <table class="s-table">
+      <thead><tr>
+        <th>메뉴</th>${depts.map(d => `<th>${d}</th>`).join("")}<th>합계</th>
+      </tr></thead>
+      <tbody>
+        ${deptRows}
+        <tr class="tr-total">
+          <td class="td-label">합계</td>
+          ${deptTotals.map(v => `<td>${v||""}</td>`).join("")}
+          <td class="td-total">${deptGrand||""}</td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  // ② 요일별 표 (행=요일, 열=메뉴) - 기존 유지
   const rows = DAYS.map(d => {
-    const vals = currentMenus.map(m => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
+    const vals = currentMenus.map(m => depts.reduce((s, dept) => s + getQty(dept, d, m), 0));
     const total = vals.reduce((s,v) => s+v, 0);
     return `<tr>
       <td class="td-label">${d}</td>
@@ -390,11 +427,12 @@ function renderWeekdaySummary() {
     </tr>`;
   }).join("");
   const menuTotals = currentMenus.map(m =>
-    DAYS.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
+    DAYS.reduce((s,d) => s + depts.reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
   );
   const grandTotal = menuTotals.reduce((s,v) => s+v, 0);
+
   document.getElementById("summaryTable").innerHTML = `
-    <div style="overflow-x:auto"><table class="s-table">
+    <table class="s-table">
       <thead><tr>
         <th>요일</th>${currentMenus.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
       </tr></thead>
@@ -406,10 +444,17 @@ function renderWeekdaySummary() {
           <td class="td-total">${grandTotal||""}</td>
         </tr>
       </tbody>
-    </table></div>`;
+    </table>`;
 }
 
 function renderSaturdaySummary() {
+  // 토요일 모드에서 부서별 표 숨김
+  const dbd = document.getElementById("summaryTableByDept");
+  if (dbd) dbd.innerHTML = "";
+  const l1 = document.getElementById("summaryLabel1");
+  const l2 = document.getElementById("summaryLabel2");
+  if (l1) l1.style.display = "none";
+  if (l2) l2.textContent = "토요일 부서별 집계";
   const depts = DEPTS_LIST();
   const menuRows = currentMenus.map(m => {
     const vals = depts.map(dept => getQty(dept, "토", m));
@@ -959,8 +1004,10 @@ select {
   <div id="tab-summary" style="display:none">
     <p class="section-label">부서별 입력 현황</p>
     <div class="dept-chips" id="deptStatus"></div>
-    <p class="section-label">요일별 집계</p>
-    <div style="overflow-x:auto" id="summaryTable"></div>
+    <p class="section-label" id="summaryLabel1">부서별 집계</p>
+    <div id="summaryTableByDept" style="overflow-x:auto;margin-bottom:1.5rem"></div>
+    <p class="section-label" id="summaryLabel2">요일별 집계</p>
+    <div id="summaryTable" style="overflow-x:auto"></div>
 
     <div class="action-bar">
       <button id="confirmBtn" style="display:none">이번 주 확정</button>
