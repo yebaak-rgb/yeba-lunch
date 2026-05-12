@@ -108,8 +108,17 @@ document.addEventListener("DOMContentLoaded", () => {
   currentWeekKey = WEEKS[curWeekIdx].key;
   renderCalendar();
 
-  // 모바일 redirect 결과 처리
-  getRedirectResult(auth).catch(e => toast("로그인 실패: " + e.message));
+  // 모바일 redirect 결과 처리 (로그인 후 돌아왔을 때 명시적으로 처리)
+  getRedirectResult(auth).then(result => {
+    if (result && result.user) {
+      // onAuthStateChanged가 자동으로 감지하므로 별도 처리 불필요
+      // 단, 결과가 있으면 에러 없이 통과
+    }
+  }).catch(e => {
+    if (e.code !== "auth/no-auth-event") {
+      toast("로그인 실패: " + e.message);
+    }
+  });
 
   // 로그인 상태 감지
   onAuthStateChanged(auth, user => {
