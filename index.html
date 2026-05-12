@@ -194,7 +194,8 @@ function getQty(dept, day, menu) {
 function deptHasData(dept) {
   try {
     const o = weekData.orders[dept] || {};
-    return DAYS.some(d => MENUS.some(m => (o[d]?.[m] || 0) > 0));
+    const checkDays = isSaturdayMode ? ["토"] : DAYS;
+    return checkDays.some(d => currentMenus.some(m => (o[d]?.[m] || 0) > 0));
   } catch { return false; }
 }
 
