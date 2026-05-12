@@ -9,7 +9,7 @@
 <!-- ✅ Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged }
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, GoogleAuthProvider, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -108,6 +108,9 @@ document.addEventListener("DOMContentLoaded", () => {
   currentWeekKey = WEEKS[curWeekIdx].key;
   renderCalendar();
 
+  // 모바일 redirect 결과 처리
+  getRedirectResult(auth).catch(e => toast("로그인 실패: " + e.message));
+
   // 로그인 상태 감지
   onAuthStateChanged(auth, user => {
     currentUser = user;
@@ -123,7 +126,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 버튼 이벤트
   document.getElementById("loginBtn").addEventListener("click", () => {
-    signInWithPopup(auth, provider).catch(e => toast("로그인 실패: " + e.message));
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    if (isMobile) {
+      signInWithRedirect(auth, provider).catch(e => toast("로그인 실패: " + e.message));
+    } else {
+      signInWithPopup(auth, provider).catch(e => toast("로그인 실패: " + e.message));
+    }
   });
   document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
   document.getElementById("confirmBtn").addEventListener("click", confirmWeek);
