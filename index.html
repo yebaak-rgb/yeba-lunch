@@ -9,7 +9,7 @@
 <!-- ✅ Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, GoogleAuthProvider, onAuthStateChanged }
+import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -102,40 +102,11 @@ const WEEKS = getWeeksOf2026();
 
 // ─── DOM 준비 후 실행 ────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  // 인앱 브라우저 감지 및 안내
-  const ua = navigator.userAgent || "";
-  const isInApp = /KAKAOTALK|NAVER|Line|Instagram|FB_IAB|FBAV|Twitter|Telegram/i.test(ua)
-    || (ua.includes("iPhone") && !ua.includes("Safari"))
-    || (/Android/i.test(ua) && /wv/.test(ua));
-  if (isInApp) {
-    document.getElementById("loginScreen").innerHTML = `
-      <div class="login-card" style="text-align:center">
-        <div style="font-size:36px;margin-bottom:1rem">⚠️</div>
-        <h1 style="margin-bottom:0.75rem">외부 브라우저로 열어주세요</h1>
-        <p>현재 앱 내 브라우저에서는 Google 로그인이 지원되지 않습니다.<br><br>
-        <strong>아이폰:</strong> 우측 하단 ··· → Safari로 열기<br>
-        <strong>안드로이드:</strong> 우측 상단 ··· → 기본 브라우저로 열기</p>
-      </div>`;
-    return;
-  }
-
   // 달력 초기화
   const todayIdx = getCurrentWeekIdx(WEEKS);
   curWeekIdx = todayIdx >= 0 ? todayIdx : 0;
   currentWeekKey = WEEKS[curWeekIdx].key;
   renderCalendar();
-
-  // 모바일 redirect 결과 처리 (로그인 후 돌아왔을 때 명시적으로 처리)
-  getRedirectResult(auth).then(result => {
-    if (result && result.user) {
-      // onAuthStateChanged가 자동으로 감지하므로 별도 처리 불필요
-      // 단, 결과가 있으면 에러 없이 통과
-    }
-  }).catch(e => {
-    if (e.code !== "auth/no-auth-event") {
-      toast("로그인 실패: " + e.message);
-    }
-  });
 
   // 로그인 상태 감지
   onAuthStateChanged(auth, user => {
@@ -152,14 +123,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 버튼 이벤트
   document.getElementById("loginBtn").addEventListener("click", () => {
-    signInWithPopup(auth, provider).catch(e => {
-      // 팝업이 차단된 경우에만 redirect로 fallback
-      if (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user") {
-        signInWithRedirect(auth, provider).catch(e2 => toast("로그인 실패: " + e2.message));
-      } else {
-        toast("로그인 실패: " + e.message);
-      }
-    });
+    signInWithPopup(auth, provider).catch(e => toast("로그인 실패: " + e.message));
   });
   document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
   document.getElementById("confirmBtn").addEventListener("click", confirmWeek);
@@ -222,8 +186,7 @@ function getQty(dept, day, menu) {
 function deptHasData(dept) {
   try {
     const o = weekData.orders[dept] || {};
-    const checkDays = isSaturdayMode ? ["토"] : DAYS;
-    return checkDays.some(d => currentMenus.some(m => (o[d]?.[m] || 0) > 0));
+    return DAYS.some(d => MENUS.some(m => (o[d]?.[m] || 0) > 0));
   } catch { return false; }
 }
 
@@ -405,8 +368,15 @@ function renderSummaryTab(locked) {
     `<span class="badge ${deptHasData(dept) ? "badge-open" : "badge-muted"}">${dept} ${deptHasData(dept) ? "✓" : "미입력"}</span>`
   ).join("");
 
-  const summaryDays = isSaturdayMode ? ["토"] : DAYS;
-  const rows = summaryDays.map(d => {
+  if (isSaturdayMode) {
+    renderSaturdaySummary();
+  } else {
+    renderWeekdaySummary();
+  }
+}
+
+function renderWeekdaySummary() {
+  const rows = DAYS.map(d => {
     const vals = currentMenus.map(m => DEPTS_LIST().reduce((s, dept) => s + getQty(dept, d, m), 0));
     const total = vals.reduce((s,v) => s+v, 0);
     return `<tr>
@@ -415,14 +385,12 @@ function renderSummaryTab(locked) {
       <td class="td-total">${total||""}</td>
     </tr>`;
   }).join("");
-
   const menuTotals = currentMenus.map(m =>
-    summaryDays.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
+    DAYS.reduce((s,d) => s + DEPTS_LIST().reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
   );
   const grandTotal = menuTotals.reduce((s,v) => s+v, 0);
-
   document.getElementById("summaryTable").innerHTML = `
-    <table class="s-table">
+    <div style="overflow-x:auto"><table class="s-table">
       <thead><tr>
         <th>요일</th>${currentMenus.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
       </tr></thead>
@@ -434,8 +402,42 @@ function renderSummaryTab(locked) {
           <td class="td-total">${grandTotal||""}</td>
         </tr>
       </tbody>
-    </table>`;
+    </table></div>`;
+}
 
+function renderSaturdaySummary() {
+  const depts = DEPTS_LIST();
+  const menuRows = currentMenus.map(m => {
+    const vals = depts.map(dept => getQty(dept, "토", m));
+    const total = vals.reduce((s,v) => s+v, 0);
+    return { menu: m, vals, total };
+  });
+  const deptTotals = depts.map(dept =>
+    currentMenus.reduce((s,m) => s + getQty(dept, "토", m), 0)
+  );
+  const grandTotal = deptTotals.reduce((s,v) => s+v, 0);
+  const rows = menuRows.map(r => `
+    <tr>
+      <td class="td-label">${r.menu}</td>
+      ${r.vals.map(v => `<td>${v||""}</td>`).join("")}
+      <td class="td-total">${r.total||""}</td>
+    </tr>`).join("");
+  document.getElementById("summaryTable").innerHTML = `
+    <div style="overflow-x:auto"><table class="s-table">
+      <thead><tr>
+        <th>메뉴</th>
+        ${depts.map(d => `<th>${d}</th>`).join("")}
+        <th>합계</th>
+      </tr></thead>
+      <tbody>
+        ${rows}
+        <tr class="tr-total">
+          <td class="td-label">합계</td>
+          ${deptTotals.map(v => `<td>${v||""}</td>`).join("")}
+          <td class="td-total">${grandTotal||""}</td>
+        </tr>
+      </tbody>
+    </table></div>`;
 }
 
 function initBillingMonthSel() {
@@ -632,7 +634,7 @@ function renderCalendar() {
     if (!isMonday) cls += " cal-disabled";
     if (isMonday)  cls += " cal-monday";
     if (isSaturday) cls += " cal-sat";
-    if (isSelected) cls += isSaturdayMode ? " cal-selected-sat" : " cal-selected";
+    if (isSelected && isMonday) cls += " cal-selected";
     if (isToday)   cls += " cal-today";
     if (locked && isMonday) cls += " cal-locked";
 
@@ -865,7 +867,6 @@ select {
 .cal-monday { color: var(--text); cursor: pointer; font-weight: 500; }
 .cal-monday:hover { background: var(--bg3); }
 .cal-selected { background: var(--text) !important; color: var(--bg) !important; }
-.cal-selected-sat { background: #3b82f6 !important; color: #fff !important; }
 .cal-today  { outline: 1.5px solid var(--border2); }
 .cal-locked { opacity: 0.5; }
 .cal-hint   { font-size: 10px; color: var(--text3); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
