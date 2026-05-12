@@ -186,7 +186,11 @@ function getQty(dept, day, menu) {
 function deptHasData(dept) {
   try {
     const o = weekData.orders[dept] || {};
-    return DAYS.some(d => MENUS.some(m => (o[d]?.[m] || 0) > 0));
+    if (isSaturdayMode) {
+      const satMenus = (weekData.satMenus && weekData.satMenus.length > 0) ? weekData.satMenus : DEFAULT_MENUS;
+      return satMenus.some(m => (o["토"]?.[m] || 0) > 0);
+    }
+    return DAYS.some(d => currentMenus.some(m => (o[d]?.[m] || 0) > 0));
   } catch { return false; }
 }
 
@@ -623,9 +627,15 @@ function renderCalendar() {
     const dow  = date.getDay(); // 0=일, 1=월
     const isMonday = dow === 1;
     const isSaturday = dow === 6;
-    // 이 날짜가 속한 주의 weekKey 계산
-    const wk = isMonday ? `2026-W${String(getISOWeek(date)).padStart(2,"0")}` : null;
-    const isSatSelected = isSaturdayMode && dow === 6 && wk === currentWeekKey;
+    // 이 날짜가 속한 주의 weekKey 계산 (월요일 기준)
+    let wk = null;
+    if (isMonday) {
+      wk = `2026-W${String(getISOWeek(date)).padStart(2,"0")}`;
+    } else if (isSaturday) {
+      const mon = new Date(date); mon.setDate(date.getDate() - 5);
+      wk = `2026-W${String(getISOWeek(mon)).padStart(2,"0")}`;
+    }
+    const isSatSelected = isSaturdayMode && isSaturday && wk === currentWeekKey;
     const isSelected = (!isSaturdayMode && isMonday && wk === currentWeekKey) || isSatSelected;
     const isToday = date.toDateString() === new Date().toDateString();
     const locked = wk ? (weekData && weekData.locked) : false;
