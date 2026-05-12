@@ -102,6 +102,23 @@ const WEEKS = getWeeksOf2026();
 
 // ─── DOM 준비 후 실행 ────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+  // 인앱 브라우저 감지 및 안내
+  const ua = navigator.userAgent || "";
+  const isInApp = /KAKAOTALK|NAVER|Line|Instagram|FB_IAB|FBAV|Twitter|Telegram/i.test(ua)
+    || (ua.includes("iPhone") && !ua.includes("Safari"))
+    || (/Android/i.test(ua) && /wv/.test(ua));
+  if (isInApp) {
+    document.getElementById("loginScreen").innerHTML = `
+      <div class="login-card" style="text-align:center">
+        <div style="font-size:36px;margin-bottom:1rem">⚠️</div>
+        <h1 style="margin-bottom:0.75rem">외부 브라우저로 열어주세요</h1>
+        <p>현재 앱 내 브라우저에서는 Google 로그인이 지원되지 않습니다.<br><br>
+        <strong>아이폰:</strong> 우측 하단 ··· → Safari로 열기<br>
+        <strong>안드로이드:</strong> 우측 상단 ··· → 기본 브라우저로 열기</p>
+      </div>`;
+    return;
+  }
+
   // 달력 초기화
   const todayIdx = getCurrentWeekIdx(WEEKS);
   curWeekIdx = todayIdx >= 0 ? todayIdx : 0;
@@ -615,7 +632,7 @@ function renderCalendar() {
     if (!isMonday) cls += " cal-disabled";
     if (isMonday)  cls += " cal-monday";
     if (isSaturday) cls += " cal-sat";
-    if (isSelected && isMonday) cls += " cal-selected";
+    if (isSelected) cls += isSaturdayMode ? " cal-selected-sat" : " cal-selected";
     if (isToday)   cls += " cal-today";
     if (locked && isMonday) cls += " cal-locked";
 
@@ -848,6 +865,7 @@ select {
 .cal-monday { color: var(--text); cursor: pointer; font-weight: 500; }
 .cal-monday:hover { background: var(--bg3); }
 .cal-selected { background: var(--text) !important; color: var(--bg) !important; }
+.cal-selected-sat { background: #3b82f6 !important; color: #fff !important; }
 .cal-today  { outline: 1.5px solid var(--border2); }
 .cal-locked { opacity: 0.5; }
 .cal-hint   { font-size: 10px; color: var(--text3); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
