@@ -15,7 +15,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ============================================================
-// ✅ 1. 여기에 Firebase 프로젝트 설정값을 붙여넣으세요
+// ✅ 1. Firebase 프로젝트 설정
 // ============================================================
 const firebaseConfig = {
   apiKey: "AIzaSyCT4JjQiXlM334oO8wEAM7e8huSLtOuAD4",
@@ -27,7 +27,7 @@ const firebaseConfig = {
 };
 
 // ============================================================
-// ✅ 2. 부서별 공용 계정 이메일을 실제 이메일로 바꾸세요
+// ✅ 2. 부서별 계정
 // ============================================================
 const DEPT_MAP = {
   "yebajjjj@gmail.com":    "J팀",
@@ -40,13 +40,42 @@ const DEPT_MAP = {
 };
 
 // ============================================================
-// ✅ 3. 기획실 확정 권한 계정 이메일을 실제 이메일로 바꾸세요
+// ✅ 3. 관리자 계정
 // ============================================================
 const ADMIN_EMAILS = [
   "yeba.ak@gmail.com",
   "yeba.sy@gmail.com",
   "yeba.jjw@gmail.com",
 ];
+
+// ============================================================
+// ✅ 4. 2026 대한민국 공휴일 (음력 기반은 추정 포함)
+//    - 설날: 1/28~30  삼일절: 3/1(일)+대체 3/2(월)
+//    - 석가탄신일: 5/24(일)+대체 5/25(월)
+//    - 어린이날: 5/5  현충일: 6/6  광복절: 8/15
+//    - 추석: 9/24~26 + 대체 9/28(월)
+//    - 개천절: 10/3  한글날: 10/9  성탄절: 12/25
+// ============================================================
+const HOLIDAYS_2026 = {
+  "2026-01-01": "신정",
+  "2026-01-28": "설날 연휴",
+  "2026-01-29": "설날",
+  "2026-01-30": "설날 연휴",
+  "2026-03-01": "삼일절",
+  "2026-03-02": "삼일절 대체공휴일",
+  "2026-05-05": "어린이날",
+  "2026-05-24": "석가탄신일",
+  "2026-05-25": "석가탄신일 대체공휴일",
+  "2026-06-06": "현충일",
+  "2026-08-15": "광복절",
+  "2026-09-24": "추석 연휴",
+  "2026-09-25": "추석",
+  "2026-09-26": "추석 연휴",
+  "2026-09-28": "추석 대체공휴일",
+  "2026-10-03": "개천절",
+  "2026-10-09": "한글날",
+  "2026-12-25": "성탄절",
+};
 
 // ─── 상수 ────────────────────────────────────────────────────
 const DEFAULT_MENUS = ["일반도시락", "샐러드", "김밥", "볶음밥"];
@@ -69,6 +98,40 @@ let unsubscribe = null;
 let weekData    = {};
 let allWeeksCache = {};
 let isSaturdayMode = false;
+
+// ─── 날짜 헬퍼 ──────────────────────────────────────────────
+function toDateStr(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+function isHoliday(date) {
+  return toDateStr(date) in HOLIDAYS_2026;
+}
+function getHolidayName(date) {
+  return HOLIDAYS_2026[toDateStr(date)] || null;
+}
+
+// 현재 주의 요일별 Date 반환 {월: Date, 화: Date, ...}
+function getWeekDayDates(weekKey) {
+  const mon = getMondayOfWeek(weekKey);
+  if (!mon) return {};
+  const result = {};
+  DAYS.forEach((d, i) => {
+    const date = new Date(mon);
+    date.setDate(mon.getDate() + i);
+    result[d] = date;
+  });
+  return result;
+}
+
+// 현재 선택된 요일의 Date
+function getCurrentDayDate() {
+  if (isSaturdayMode) return null;
+  const dates = getWeekDayDates(currentWeekKey);
+  return dates[currentDay] || null;
+}
 
 // ─── 주차 계산 ───────────────────────────────────────────────
 function getWeeksOf2026() {
@@ -102,13 +165,11 @@ const WEEKS = getWeeksOf2026();
 
 // ─── DOM 준비 후 실행 ────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  // 달력 초기화
   const todayIdx = getCurrentWeekIdx(WEEKS);
   curWeekIdx = todayIdx >= 0 ? todayIdx : 0;
   currentWeekKey = WEEKS[curWeekIdx].key;
   renderCalendar();
 
-  // 로그인 상태 감지
   onAuthStateChanged(auth, user => {
     currentUser = user;
     if (user) {
@@ -121,7 +182,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // 버튼 이벤트
   document.getElementById("loginBtn").addEventListener("click", () => {
     signInWithPopup(auth, provider).catch(e => toast("로그인 실패: " + e.message));
   });
@@ -134,8 +194,11 @@ function subscribeWeek() {
   if (unsubscribe) unsubscribe();
   const ref = doc(db, "weeks", currentWeekKey);
   unsubscribe = onSnapshot(ref, snap => {
-    weekData = snap.exists() ? snap.data() : { locked: false, orders: {} };
-    if (!weekData.orders) weekData.orders = {};
+    weekData = snap.exists()
+      ? snap.data()
+      : { locked: false, orders: {}, submitted: {} };
+    if (!weekData.orders)    weekData.orders = {};
+    if (!weekData.submitted) weekData.submitted = {};
     if (isSaturdayMode) {
       currentMenus = (weekData.satMenus && weekData.satMenus.length > 0) ? weekData.satMenus : [...DEFAULT_MENUS];
     } else {
@@ -150,14 +213,16 @@ function subscribeWeek() {
 async function saveQty(dept, day, menu, val) {
   const ref  = doc(db, "weeks", currentWeekKey);
   const snap = await getDoc(ref);
-  const data = snap.exists() ? snap.data() : { locked: false, orders: {} };
-  if (!data.orders)          data.orders = {};
-  if (!data.orders[dept])    data.orders[dept] = {};
+  const data = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
+  if (!data.orders)           data.orders = {};
+  if (!data.submitted)        data.submitted = {};
+  if (!data.orders[dept])     data.orders[dept] = {};
   if (!data.orders[dept][day]) data.orders[dept][day] = {};
   data.orders[dept][day][menu] = val;
   await setDoc(ref, data);
 }
 
+// ─── 확정 ────────────────────────────────────────────────────
 async function confirmWeek() {
   if (!isAdmin) return;
   if (weekData.locked) { toast("이미 확정된 주입니다."); return; }
@@ -174,14 +239,46 @@ window.unlockWeek = async function() {
   if (snap.exists()) {
     await updateDoc(ref, { locked: false });
   } else {
-    await setDoc(ref, { locked: false, orders: {} });
+    await setDoc(ref, { locked: false, orders: {}, submitted: {} });
   }
   toast("잠금이 해제되었습니다. 수정 가능합니다.");
+};
+
+// ─── 부서 입력 완료 토글 ──────────────────────────────────────
+window.submitDept = async function() {
+  const dept = currentDept;
+  if (!dept) return;
+  if (weekData.locked) { toast("확정된 주입니다. 수정 불가."); return; }
+
+  const already = weekData.submitted?.[dept] === true;
+
+  if (already) {
+    if (!confirm("입력 완료를 취소하고 수정 모드로 전환하시겠습니까?")) return;
+    const ref  = doc(db, "weeks", currentWeekKey);
+    const snap = await getDoc(ref);
+    const data = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
+    if (!data.submitted) data.submitted = {};
+    data.submitted[dept] = false;
+    await setDoc(ref, data);
+    toast("수정 모드로 전환되었습니다.");
+  } else {
+    if (!confirm(`${dept}의 이번 주 수량 입력을 완료 처리하시겠습니까?\n완료 후엔 수량 변경이 잠기고,\n'수정하기' 버튼으로 다시 열 수 있습니다.`)) return;
+    const ref  = doc(db, "weeks", currentWeekKey);
+    const snap = await getDoc(ref);
+    const data = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
+    if (!data.submitted) data.submitted = {};
+    data.submitted[dept] = true;
+    await setDoc(ref, data);
+    toast(`✓ ${dept} 입력 완료 처리되었습니다.`);
+  }
 };
 
 // ─── 헬퍼 ────────────────────────────────────────────────────
 function getQty(dept, day, menu) {
   try { return weekData.orders[dept][day][menu] || 0; } catch { return 0; }
+}
+function isDeptSubmitted(dept) {
+  return weekData.submitted?.[dept] === true;
 }
 function deptHasData(dept) {
   try {
@@ -225,9 +322,24 @@ window.changeQty = async function(menu, delta) {
   if (!dept) { toast("등록되지 않은 계정입니다."); return; }
   currentDept = dept;
   if (weekData.locked) { toast("확정된 주입니다. 수정 불가."); return; }
+
+  // 공휴일 차단
+  if (!isSaturdayMode) {
+    const dayDate = getCurrentDayDate();
+    if (dayDate && isHoliday(dayDate)) {
+      toast(`${getHolidayName(dayDate)} — 공휴일은 입력 불가합니다.`);
+      return;
+    }
+  }
+
+  // 입력 완료 처리된 부서 차단 (관리자 제외)
+  if (!isAdmin && isDeptSubmitted(dept)) {
+    toast("입력 완료 처리된 주입니다. '수정하기'를 눌러 변경하세요.");
+    return;
+  }
+
   const cur = getQty(currentDept, currentDay, menu);
   const nv  = Math.max(0, cur + delta);
-  // 낙관적 업데이트 (UI 즉시 반영)
   if (!weekData.orders[currentDept]) weekData.orders[currentDept] = {};
   if (!weekData.orders[currentDept][currentDay]) weekData.orders[currentDept][currentDay] = {};
   weekData.orders[currentDept][currentDay][menu] = nv;
@@ -243,7 +355,6 @@ window.changeQty = async function(menu, delta) {
 function render() {
   const locked = weekData.locked;
 
-  // 상태 뱃지
   document.getElementById("statusBadge").className   = "badge " + (locked ? "badge-locked" : "badge-open");
   document.getElementById("statusBadge").innerHTML   = locked
     ? '<i class="ti ti-lock"></i> 확정됨'
@@ -259,7 +370,6 @@ function render() {
     renderMenuEditor();
   }
 
-  // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
   const ub = document.getElementById("unlockBtn");
   const locked2 = weekData.locked || false;
@@ -279,7 +389,6 @@ function renderInputTab(locked) {
     return;
   }
 
-  // 관리자: 부서 선택 드롭다운
   const deptSel = document.getElementById("adminDeptSel");
   if (isAdmin && deptSel) {
     deptSel.style.display = "";
@@ -294,38 +403,81 @@ function renderInputTab(locked) {
   }
 
   const wLocked = weekData.locked || false;
+  const deptSubmitted = !isAdmin && isDeptSubmitted(currentDept);
+
+  // inputArea 내용 결정
+  let inputAreaHTML = "";
   if (wLocked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
     renderMyWeekTable();
     return;
   }
-
   if (wLocked && isAdmin) {
-    document.getElementById("inputArea").innerHTML =
-      `<div class="notice notice-warn" style="margin-bottom:1rem"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정 가능합니다.</div>`;
-    // 메뉴카드는 계속 렌더 (잠금 해제 후 바로 수정 가능하도록)
-  } else {
-    document.getElementById("inputArea").innerHTML = "";
+    inputAreaHTML = `<div class="notice notice-warn" style="margin-bottom:1rem"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정 가능합니다.</div>`;
   }
 
-  // 요일 탭
-  const tabDays = isSaturdayMode ? ["토"] : DAYS;
-  document.getElementById("dayTabs").innerHTML = tabDays.map(d =>
-    `<button class="day-btn${d === currentDay ? " active" : ""}${d==="토"?" day-btn-sat":""}" onclick="selectDay('${d}')">${d}요일</button>`
-  ).join("");
+  // 요일 탭 (공휴일 표시)
+  const tabDays  = isSaturdayMode ? ["토"] : DAYS;
+  const dayDates = isSaturdayMode ? {} : getWeekDayDates(currentWeekKey);
+
+  document.getElementById("dayTabs").innerHTML = tabDays.map(d => {
+    const date   = dayDates[d];
+    const isHol  = date && isHoliday(date);
+    const holTip = isHol ? getHolidayName(date) : (d + "요일");
+    let cls = `day-btn`;
+    if (d === currentDay) cls += " active";
+    if (d === "토")       cls += " day-btn-sat";
+    if (isHol)            cls += " day-btn-holiday";
+    return `<button class="${cls}" onclick="selectDay('${d}')" title="${holTip}">${d}${isHol ? " 🔴" : ""}</button>`;
+  }).join("");
+
+  // 현재 선택 요일 공휴일 여부
+  const curDate  = isSaturdayMode ? null : getCurrentDayDate();
+  const isHolDay = curDate && isHoliday(curDate);
+  const holName  = isHolDay ? getHolidayName(curDate) : null;
+
+  if (holName) {
+    document.getElementById("menuLabel").innerHTML =
+      `<span class="holiday-banner"><i class="ti ti-calendar-off"></i> ${holName} — 수량 입력 불가</span>`;
+  } else {
+    document.getElementById("menuLabel").innerHTML = "";
+  }
+
+  // 입력 비활성화 조건: 공휴일 or 완료 처리됨
+  const inputBlocked = isHolDay || (!isAdmin && deptSubmitted);
 
   // 메뉴 카드
   document.getElementById("menuGrid").innerHTML = currentMenus.map(m => `
-    <div class="menu-card">
+    <div class="menu-card${inputBlocked ? " menu-card-off" : ""}">
       <p class="menu-label">${m}</p>
       <div class="qty-control">
-        <button class="qty-btn" onclick="changeQty('${m}',-1)">−</button>
+        <button class="qty-btn" onclick="changeQty('${m}',-1)" ${inputBlocked ? "disabled" : ""}>−</button>
         <span class="qty-val" id="q_${m}">${getQty(currentDept, currentDay, m)}</span>
-        <button class="qty-btn" onclick="changeQty('${m}',1)">+</button>
+        <button class="qty-btn" onclick="changeQty('${m}',1)" ${inputBlocked ? "disabled" : ""}>+</button>
       </div>
     </div>`).join("");
 
+  // 입력 완료 버튼 (일반 부서 + 잠금 전)
+  if (!isAdmin && !wLocked) {
+    const submitted = isDeptSubmitted(currentDept);
+    if (submitted) {
+      inputAreaHTML += `
+        <div class="notice notice-success" style="margin-top:1rem">
+          <i class="ti ti-circle-check"></i> 입력 완료 처리되었습니다. 수정이 필요하면 아래 버튼을 누르세요.
+        </div>
+        <button class="submit-btn submit-btn-undo" onclick="submitDept()">
+          <i class="ti ti-edit"></i> 수정하기
+        </button>`;
+    } else {
+      inputAreaHTML += `
+        <button class="submit-btn" onclick="submitDept()" style="margin-top:1rem">
+          <i class="ti ti-circle-check"></i> 입력 완료
+        </button>`;
+    }
+  }
+
+  document.getElementById("inputArea").innerHTML = inputAreaHTML;
   renderMyWeekTable();
 }
 
@@ -335,31 +487,47 @@ function renderMyWeekTable() {
   const el = document.getElementById("myWeekTable");
   if (!el) return;
   const tableDays = isSaturdayMode ? ["토"] : DAYS;
+  const dayDates  = isSaturdayMode ? {} : getWeekDayDates(currentWeekKey);
+
   const rows = tableDays.map(d => {
-    const vals = currentMenus.map(m => getQty(dept, d, m));
-    const total = vals.reduce((s,v)=>s+v,0);
-    return `<tr>
-      <td class="td-label">${d}</td>
-      ${vals.map(v=>`<td>${v||""}</td>`).join("")}
-      <td class="td-total">${total||""}</td>
+    const date   = dayDates[d];
+    const isHol  = date && isHoliday(date);
+    const holName = isHol ? getHolidayName(date) : null;
+    const vals   = currentMenus.map(m => isHol ? null : getQty(dept, d, m));
+    const total  = isHol ? null : vals.reduce((s, v) => s + v, 0);
+    const rowCls = isHol ? ' class="tr-holiday"' : "";
+    return `<tr${rowCls}>
+      <td class="td-label" title="${holName || ''}">${d}${isHol ? ' <span class="hol-dot">●</span>' : ''}</td>
+      ${isHol
+        ? `<td colspan="${currentMenus.length}" class="td-hol-msg">${holName}</td><td></td>`
+        : vals.map(v => `<td>${v || ""}</td>`).join("") + `<td class="td-total">${total || ""}</td>`
+      }
     </tr>`;
   }).join("");
-  const colTotals = currentMenus.map(m => tableDays.reduce((s,d)=>s+getQty(dept,d,m),0));
-  const grand = colTotals.reduce((s,v)=>s+v,0);
+
+  const colTotals = currentMenus.map(m =>
+    tableDays.reduce((s, d) => {
+      const date = dayDates[d];
+      if (date && isHoliday(date)) return s;
+      return s + getQty(dept, d, m);
+    }, 0)
+  );
+  const grand = colTotals.reduce((s, v) => s + v, 0);
   const modeLabel = isSaturdayMode ? "토요일" : "이번 주";
+
   el.innerHTML = `
     <p class="section-label" style="margin-top:1.5rem">${dept} ${modeLabel} 입력 현황</p>
     <div style="overflow-x:auto">
     <table class="s-table">
       <thead><tr>
-        <th>요일</th>${currentMenus.map(m=>`<th>${m}</th>`).join("")}<th>합계</th>
+        <th>요일</th>${currentMenus.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
       </tr></thead>
       <tbody>
         ${rows}
         <tr class="tr-total">
           <td class="td-label">합계</td>
-          ${colTotals.map(v=>`<td>${v||""}</td>`).join("")}
-          <td class="td-total">${grand||""}</td>
+          ${colTotals.map(v => `<td>${v || ""}</td>`).join("")}
+          <td class="td-total">${grand || ""}</td>
         </tr>
       </tbody>
     </table>
@@ -368,9 +536,19 @@ function renderMyWeekTable() {
 
 function renderSummaryTab(locked) {
   const uniqueDepts = [...new Set(Object.values(DEPT_MAP))];
-  document.getElementById("deptStatus").innerHTML = uniqueDepts.map(dept =>
-    `<span class="badge ${deptHasData(dept) ? "badge-open" : "badge-muted"}">${dept} ${deptHasData(dept) ? "✓" : "미입력"}</span>`
-  ).join("");
+  document.getElementById("deptStatus").innerHTML = uniqueDepts.map(dept => {
+    const submitted = isDeptSubmitted(dept);
+    const hasData   = deptHasData(dept);
+    let cls, label;
+    if (submitted) {
+      cls = "badge-complete"; label = `${dept} ✓ 완료`;
+    } else if (hasData) {
+      cls = "badge-open"; label = `${dept} 입력중`;
+    } else {
+      cls = "badge-muted"; label = `${dept} 미입력`;
+    }
+    return `<span class="badge ${cls}">${label}</span>`;
+  }).join("");
 
   if (isSaturdayMode) {
     renderSaturdaySummary();
@@ -384,52 +562,67 @@ function renderWeekdaySummary() {
   const l2 = document.getElementById("summaryLabel2");
   if (l1) { l1.style.display = ""; l1.textContent = "부서별 집계"; }
   if (l2) l2.textContent = "요일별 집계";
-  const depts = DEPTS_LIST();
-
-  // ① 부서별×요일별 표 (행=부서, 열=요일×메뉴 + 합계)
-  // 헤더 1행: 요일 (colspan=메뉴수)
+  const depts    = DEPTS_LIST();
+  const dayDates = getWeekDayDates(currentWeekKey);
   const menuCount = currentMenus.length;
-  const header1 = DAYS.map(d =>
-    `<th colspan="${menuCount}" style="text-align:center;border-bottom:none">${d}</th>`
-  ).join("") + `<th rowspan="2" style="vertical-align:middle">합계</th>`;
+  const menuAbbr  = m => m.length > 2 ? m.slice(0, 2) : m;
+
+  // 헤더 1행: 요일 + 공휴일 표시
+  const header1 = DAYS.map(d => {
+    const date  = dayDates[d];
+    const isHol = date && isHoliday(date);
+    const tip   = isHol ? getHolidayName(date) : "";
+    return `<th colspan="${menuCount}" class="${isHol ? 'th-holiday' : ''}" style="text-align:center;border-bottom:none" title="${tip}">${d}${isHol ? " 🔴" : ""}</th>`;
+  }).join("") + `<th rowspan="2" style="vertical-align:middle">합계</th>`;
 
   // 헤더 2행: 메뉴 약칭 반복
-  const menuAbbr = m => m.length > 2 ? m.slice(0,2) : m;
-  const header2 = DAYS.map(() =>
-    currentMenus.map(m => `<th style="font-size:11px;font-weight:400;color:var(--text2)">${menuAbbr(m)}</th>`).join("")
-  ).join("");
+  const header2 = DAYS.map(d => {
+    const date  = dayDates[d];
+    const isHol = date && isHoliday(date);
+    return currentMenus.map(m =>
+      `<th class="${isHol ? 'th-holiday' : ''}" style="font-size:11px;font-weight:400">${menuAbbr(m)}</th>`
+    ).join("");
+  }).join("");
 
-  // 데이터 행
+  // 데이터 행 (부서별)
   const deptDataRows = depts.map(dept => {
     let rowTotal = 0;
-    const cells = DAYS.map(d =>
-      currentMenus.map(m => {
+    const cells = DAYS.map(d => {
+      const date  = dayDates[d];
+      const isHol = date && isHoliday(date);
+      return currentMenus.map(m => {
+        if (isHol) return `<td class="td-holiday">—</td>`;
         const v = getQty(dept, d, m);
         rowTotal += v;
-        return `<td>${v||""}</td>`;
-      }).join("")
-    ).join("");
-    return `<tr><td class="td-label">${dept}</td>${cells}<td class="td-total">${rowTotal||""}</td></tr>`;
+        return `<td>${v || ""}</td>`;
+      }).join("");
+    }).join("");
+    return `<tr><td class="td-label">${dept}</td>${cells}<td class="td-total">${rowTotal || ""}</td></tr>`;
   }).join("");
 
   // 합계 행
-  const totalCells = DAYS.map(d =>
-    currentMenus.map(m => {
-      const v = depts.reduce((s,dept) => s + getQty(dept,d,m), 0);
-      return `<td>${v||""}</td>`;
-    }).join("")
-  ).join("");
-  const grandByDept = depts.reduce((s,dept) =>
-    s + DAYS.reduce((s2,d) => s2 + currentMenus.reduce((s3,m) => s3 + getQty(dept,d,m), 0), 0), 0);
+  const totalCells = DAYS.map(d => {
+    const date  = dayDates[d];
+    const isHol = date && isHoliday(date);
+    return currentMenus.map(m => {
+      if (isHol) return `<td class="td-holiday">—</td>`;
+      const v = depts.reduce((s, dept) => s + getQty(dept, d, m), 0);
+      return `<td>${v || ""}</td>`;
+    }).join("");
+  }).join("");
+
+  const grandByDept = depts.reduce((s, dept) =>
+    s + DAYS.reduce((s2, d) => {
+      const date = dayDates[d];
+      if (date && isHoliday(date)) return s2;
+      return s2 + currentMenus.reduce((s3, m) => s3 + getQty(dept, d, m), 0);
+    }, 0), 0);
 
   document.getElementById("summaryTableByDept").innerHTML = `
     <div style="overflow-x:auto">
     <table class="s-table" style="min-width:max-content">
       <thead>
-        <tr>
-          <th rowspan="2">부서</th>
-          ${header1}
-        </tr>
+        <tr><th rowspan="2">부서</th>${header1}</tr>
         <tr>${header2}</tr>
       </thead>
       <tbody>
@@ -437,52 +630,67 @@ function renderWeekdaySummary() {
         <tr class="tr-total">
           <td class="td-label">합계</td>
           ${totalCells}
-          <td class="td-total">${grandByDept||""}</td>
+          <td class="td-total">${grandByDept || ""}</td>
         </tr>
       </tbody>
     </table>
     </div>`;
 
-  // ② 요일별 표 (행=요일, 열=메뉴) - 기존 유지
+  // 요일별 표
   const rows = DAYS.map(d => {
-    const vals = currentMenus.map(m => depts.reduce((s, dept) => s + getQty(dept, d, m), 0));
-    const total = vals.reduce((s,v) => s+v, 0);
+    const date  = dayDates[d];
+    const isHol = date && isHoliday(date);
+    const holName = isHol ? getHolidayName(date) : null;
+    if (isHol) {
+      return `<tr class="tr-holiday">
+        <td class="td-label">${d} <span class="hol-dot">●</span></td>
+        <td colspan="${menuCount}" class="td-hol-msg">${holName}</td>
+        <td></td>
+      </tr>`;
+    }
+    const vals  = currentMenus.map(m => depts.reduce((s, dept) => s + getQty(dept, d, m), 0));
+    const total = vals.reduce((s, v) => s + v, 0);
     return `<tr>
       <td class="td-label">${d}</td>
-      ${vals.map(v => `<td>${v||""}</td>`).join("")}
-      <td class="td-total">${total||""}</td>
+      ${vals.map(v => `<td>${v || ""}</td>`).join("")}
+      <td class="td-total">${total || ""}</td>
     </tr>`;
   }).join("");
-  const menuTotals = currentMenus.map(m =>
-    DAYS.reduce((s,d) => s + depts.reduce((s2,dept) => s2 + getQty(dept,d,m), 0), 0)
-  );
-  const grandTotal = menuTotals.reduce((s,v) => s+v, 0);
 
-  // 현재 주 월요일 날짜 계산
+  const menuTotals = currentMenus.map(m =>
+    DAYS.reduce((s, d) => {
+      const date = dayDates[d];
+      if (date && isHoliday(date)) return s;
+      return s + depts.reduce((s2, dept) => s2 + getQty(dept, d, m), 0);
+    }, 0)
+  );
+  const grandTotal = menuTotals.reduce((s, v) => s + v, 0);
+
   const wkLabel = (() => {
     const w = WEEKS.find(w => w.key === currentWeekKey);
     if (!w || !w.mon) return "";
-    return `${w.mon.getMonth()+1}/${w.mon.getDate()}`;
+    return `${w.mon.getMonth() + 1}/${w.mon.getDate()}`;
   })();
 
   document.getElementById("summaryTable").innerHTML = `
     <table class="s-table">
       <thead><tr>
-        <th style="color:var(--text2);font-size:12px">${wkLabel}</th>${currentMenus.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
+        <th style="color:var(--text2);font-size:12px">${wkLabel}</th>
+        ${currentMenus.map(m => `<th>${m}</th>`).join("")}
+        <th>합계</th>
       </tr></thead>
       <tbody>
         ${rows}
         <tr class="tr-total">
           <td class="td-label">합계</td>
-          ${menuTotals.map(v => `<td>${v||""}</td>`).join("")}
-          <td class="td-total">${grandTotal||""}</td>
+          ${menuTotals.map(v => `<td>${v || ""}</td>`).join("")}
+          <td class="td-total">${grandTotal || ""}</td>
         </tr>
       </tbody>
     </table>`;
 }
 
 function renderSaturdaySummary() {
-  // 토요일 모드에서 부서별 표 숨김
   const dbd = document.getElementById("summaryTableByDept");
   if (dbd) dbd.innerHTML = "";
   const l1 = document.getElementById("summaryLabel1");
@@ -491,19 +699,19 @@ function renderSaturdaySummary() {
   if (l2) l2.textContent = "토요일 부서별 집계";
   const depts = DEPTS_LIST();
   const menuRows = currentMenus.map(m => {
-    const vals = depts.map(dept => getQty(dept, "토", m));
-    const total = vals.reduce((s,v) => s+v, 0);
+    const vals  = depts.map(dept => getQty(dept, "토", m));
+    const total = vals.reduce((s, v) => s + v, 0);
     return { menu: m, vals, total };
   });
   const deptTotals = depts.map(dept =>
-    currentMenus.reduce((s,m) => s + getQty(dept, "토", m), 0)
+    currentMenus.reduce((s, m) => s + getQty(dept, "토", m), 0)
   );
-  const grandTotal = deptTotals.reduce((s,v) => s+v, 0);
+  const grandTotal = deptTotals.reduce((s, v) => s + v, 0);
   const rows = menuRows.map(r => `
     <tr>
       <td class="td-label">${r.menu}</td>
-      ${r.vals.map(v => `<td>${v||""}</td>`).join("")}
-      <td class="td-total">${r.total||""}</td>
+      ${r.vals.map(v => `<td>${v || ""}</td>`).join("")}
+      <td class="td-total">${r.total || ""}</td>
     </tr>`).join("");
   document.getElementById("summaryTable").innerHTML = `
     <div style="overflow-x:auto"><table class="s-table">
@@ -516,8 +724,8 @@ function renderSaturdaySummary() {
         ${rows}
         <tr class="tr-total">
           <td class="td-label">합계</td>
-          ${deptTotals.map(v => `<td>${v||""}</td>`).join("")}
-          <td class="td-total">${grandTotal||""}</td>
+          ${deptTotals.map(v => `<td>${v || ""}</td>`).join("")}
+          <td class="td-total">${grandTotal || ""}</td>
         </tr>
       </tbody>
     </table></div>`;
@@ -547,14 +755,13 @@ window.renderBillingTab = async function() {
 
   const weeksInMonth = WEEKS.filter(w => w.mon && w.mon.getMonth() === targetMonth);
 
-  // 캐시에 없는 주차는 Firestore에서 fetch
   await Promise.all(weeksInMonth.map(async w => {
     if (!allWeeksCache[w.key]) {
       try {
         const snap = await getDoc(doc(db, "weeks", w.key));
-        allWeeksCache[w.key] = snap.exists() ? snap.data() : { locked: false, orders: {} };
+        allWeeksCache[w.key] = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
       } catch(e) {
-        allWeeksCache[w.key] = { locked: false, orders: {} };
+        allWeeksCache[w.key] = { locked: false, orders: {}, submitted: {} };
       }
     }
   }));
@@ -563,22 +770,25 @@ window.renderBillingTab = async function() {
   let totalQty = 0;
 
   weeksInMonth.forEach(w => {
-    const wData = allWeeksCache[w.key];
-    const WEEKDAYS = ["월","화","수","목","금"];
+    const wData    = allWeeksCache[w.key];
+    const dayDates = getWeekDayDates(w.key);
     const qty = wData ? DEPTS_LIST().reduce((s, dept) =>
-      s + WEEKDAYS.reduce((s2, d) =>
-        s2 + currentMenus.reduce((s3, menu) =>
-          s3 + (wData.orders?.[dept]?.[d]?.[menu] || 0), 0), 0), 0) : 0;
+      s + DAYS.reduce((s2, d) => {
+        const date = dayDates[d];
+        if (date && isHoliday(date)) return s2; // 공휴일 제외
+        return s2 + currentMenus.reduce((s3, menu) =>
+          s3 + (wData.orders?.[dept]?.[d]?.[menu] || 0), 0);
+      }, 0), 0) : 0;
     totalQty += qty;
-    const label = `${w.mon.getMonth()+1}월 ${w.mon.getDate()}일`;
+    const label = `${w.mon.getMonth() + 1}월 ${w.mon.getDate()}일`;
     rows += `<tr>
       <td class="td-label">${label}</td>
       <td style="text-align:center">${qty || 0}</td>
-      <td style="text-align:right;padding-right:12px">${qty > 0 ? (qty*PRICE).toLocaleString()+"원" : "-"}</td>
+      <td style="text-align:right;padding-right:12px">${qty > 0 ? (qty * PRICE).toLocaleString() + "원" : "-"}</td>
     </tr>`;
   });
 
-  const totalAmt = totalQty > 0 ? (totalQty*PRICE).toLocaleString()+"원" : "-";
+  const totalAmt = totalQty > 0 ? (totalQty * PRICE).toLocaleString() + "원" : "-";
 
   document.getElementById("billingTable").innerHTML = `
     <table class="s-table" style="max-width:360px">
@@ -661,16 +871,19 @@ window.saveMenus = async function() {
   if (snap.exists()) {
     await updateDoc(ref, { [menuKey]: currentMenus });
   } else {
-    await setDoc(ref, { locked: false, orders: {}, [menuKey]: currentMenus });
+    await setDoc(ref, { locked: false, orders: {}, submitted: {}, [menuKey]: currentMenus });
   }
   toast("메뉴가 저장되었습니다.");
   renderMenuEditor();
   renderMyWeekTable();
-  // 요일탭/메뉴카드 갱신
   const tabDays2 = isSaturdayMode ? ["토"] : DAYS;
-  document.getElementById("dayTabs").innerHTML = tabDays2.map(d =>
-    `<button class="day-btn${d === currentDay ? " active" : ""}${d==="토"?" day-btn-sat":""}" onclick="selectDay('${d}')">${d}요일</button>`
-  ).join("");
+  const dayDates2 = isSaturdayMode ? {} : getWeekDayDates(currentWeekKey);
+  document.getElementById("dayTabs").innerHTML = tabDays2.map(d => {
+    const date  = dayDates2[d];
+    const isHol = date && isHoliday(date);
+    let cls = `day-btn${d === currentDay ? " active" : ""}${d === "토" ? " day-btn-sat" : ""}${isHol ? " day-btn-holiday" : ""}`;
+    return `<button class="${cls}" onclick="selectDay('${d}')" title="${isHol ? getHolidayName(date) : d + '요일'}">${d}${isHol ? " 🔴" : ""}</button>`;
+  }).join("");
   document.getElementById("menuGrid").innerHTML = currentMenus.map(m => `
     <div class="menu-card">
       <p class="menu-label">${m}</p>
@@ -684,7 +897,7 @@ window.saveMenus = async function() {
 
 let curWeekIdx = 0;
 let calYear = 2026;
-let calMonth = (new Date()).getMonth(); // 0-based
+let calMonth = (new Date()).getMonth();
 
 function renderCalendar() {
   const wrap = document.getElementById("calendarWrap");
@@ -695,42 +908,51 @@ function renderCalendar() {
   const monthNames = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 
   let cells = "";
-  // 빈칸 (1일 전 요일만큼)
-  let startDow = firstDay.getDay(); // 0=일, 일요일 시작이므로 그대로 사용
+  let startDow = firstDay.getDay();
   for (let i = 0; i < startDow; i++) cells += `<div class="cal-cell empty"></div>`;
 
   for (let d = 1; d <= lastDay.getDate(); d++) {
-    const date = new Date(calYear, calMonth, d);
-    const dow  = date.getDay(); // 0=일, 1=월
-    const isMonday = dow === 1;
+    const date      = new Date(calYear, calMonth, d);
+    const dow       = date.getDay();
+    const isMonday  = dow === 1;
     const isSaturday = dow === 6;
-    const isSunday = dow === 0;
-    // 이 날짜가 속한 주의 weekKey 계산 (월요일 기준)
+    const isSunday  = dow === 0;
+    const isHol     = isHoliday(date);
+    const holName   = isHol ? getHolidayName(date) : null;
+
     let wk = null;
     if (isMonday) {
-      wk = `2026-W${String(getISOWeek(date)).padStart(2,"0")}`;
+      wk = `2026-W${String(getISOWeek(date)).padStart(2, "0")}`;
     } else if (isSaturday) {
       const mon = new Date(date); mon.setDate(date.getDate() - 5);
-      wk = `2026-W${String(getISOWeek(mon)).padStart(2,"0")}`;
+      wk = `2026-W${String(getISOWeek(mon)).padStart(2, "0")}`;
     }
+
     const isSatSelected = isSaturdayMode && isSaturday && wk === currentWeekKey;
-    const isSelected = (!isSaturdayMode && isMonday && wk === currentWeekKey) || isSatSelected;
-    const isToday = date.toDateString() === new Date().toDateString();
-    const locked = wk ? (weekData && weekData.locked) : false;
+    const isSelected    = (!isSaturdayMode && isMonday && wk === currentWeekKey) || isSatSelected;
+    const isToday       = date.toDateString() === new Date().toDateString();
+    const locked        = wk ? (weekData && weekData.locked) : false;
 
     let cls = "cal-cell";
-    if (!isMonday) cls += " cal-disabled";
-    if (isMonday)  cls += " cal-monday";
+    if (!isMonday && !isSaturday) cls += " cal-disabled";
+    if (isMonday)   cls += " cal-monday";
     if (isSaturday) cls += " cal-sat";
-    if (isSunday) cls += " cal-sun";
-    if (isSelected && isMonday) cls += " cal-selected";
-    if (isToday)   cls += " cal-today";
+    if (isSunday)   cls += " cal-sun";
+    if (isSelected && isMonday)   cls += " cal-selected";
+    if (isSelected && isSaturday) cls += " cal-sat-selected";
+    if (isToday)    cls += " cal-today";
     if (locked && isMonday) cls += " cal-locked";
+    // 평일 공휴일: 빨간 표시 (일요일·토요일 제외)
+    if (isHol && !isSunday && !isSaturday) cls += " cal-weekday-hol";
 
     let onclick = "";
-    if (isMonday) onclick = `onclick="selectWeekByMonday(${calYear},${calMonth},${d})"`;
+    if (isMonday)   onclick = `onclick="selectWeekByMonday(${calYear},${calMonth},${d})"`;
     else if (isSaturday) onclick = `onclick="selectSaturday(${calYear},${calMonth},${d})"`;
-    cells += `<div class="${cls}" ${onclick}>${d}</div>`;
+
+    const title = holName ? ` title="${holName}"` : "";
+    // 공휴일 빨간 점 표시
+    const holDot = isHol ? `<span class="cal-hol-dot"></span>` : "";
+    cells += `<div class="${cls}"${onclick}${title}>${d}${holDot}</div>`;
   }
 
   wrap.innerHTML = `
@@ -741,10 +963,12 @@ function renderCalendar() {
         <button class="cal-nav" onclick="shiftMonth(1)"><i class="ti ti-chevron-right"></i></button>
       </div>
       <div class="cal-dow-row">
-        ${["일","월","화","수","목","금","토"].map((d,i)=>`<div class="cal-dow${i===0?' cal-dow-sun':i===6?' cal-dow-sat':''}">${d}</div>`).join("")}
+        ${["일","월","화","수","목","금","토"].map((d,i) =>
+          `<div class="cal-dow${i===0?' cal-dow-sun':i===6?' cal-dow-sat':''}">${d}</div>`
+        ).join("")}
       </div>
       <div class="cal-grid">${cells}</div>
-      <p class="cal-hint"><i class="ti ti-info-circle"></i> 월요일을 클릭해 해당 주 수량을 입력하세요</p>
+      <p class="cal-hint"><i class="ti ti-info-circle"></i> 월요일을 클릭해 해당 주 수량을 입력하세요 &nbsp;|&nbsp; <span style="color:#ef4444">●</span> 공휴일</p>
     </div>`;
 }
 
@@ -757,7 +981,7 @@ window.shiftMonth = function(delta) {
 
 window.selectWeekByMonday = function(y, m, d) {
   const date = new Date(y, m, d);
-  const wk = `2026-W${String(getISOWeek(date)).padStart(2,"0")}`;
+  const wk = `2026-W${String(getISOWeek(date)).padStart(2, "0")}`;
   currentWeekKey = wk;
   currentDay = "월";
   isSaturdayMode = false;
@@ -766,9 +990,8 @@ window.selectWeekByMonday = function(y, m, d) {
 
 window.selectSaturday = function(y, m, d) {
   const date = new Date(y, m, d);
-  // 토요일이 속한 주의 월요일 찾기 (토요일 - 5일)
   const mon = new Date(date); mon.setDate(date.getDate() - 5);
-  const wk = `2026-W${String(getISOWeek(mon)).padStart(2,"0")}`;
+  const wk = `2026-W${String(getISOWeek(mon)).padStart(2, "0")}`;
   currentWeekKey = wk;
   currentDay = "토";
   isSaturdayMode = true;
@@ -798,6 +1021,8 @@ function toast(msg) {
   --red-bg:   #fcebeb; --red-tx:   #a32d2d;
   --blue-bg:  #e6f1fb; --blue-tx:  #185fa5;
   --amber-bg: #faeeda; --amber-tx: #854f0b;
+  --hol-bg:   #fff0f0; --hol-tx:   #ef4444;
+  --hol-cell: rgba(239,68,68,0.07);
   --radius:   8px; --radius-lg: 12px;
 }
 @media (prefers-color-scheme: dark) {
@@ -809,11 +1034,13 @@ function toast(msg) {
     --red-bg:#501313;   --red-tx:#f09595;
     --blue-bg:#042c53;  --blue-tx:#85b7eb;
     --amber-bg:#412402; --amber-tx:#fac775;
+    --hol-bg:  #3a1010; --hol-tx:  #f87171;
+    --hol-cell:rgba(239,68,68,0.12);
   }
 }
 body { font-family: -apple-system, "Pretendard", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
-/* ── 로그인 화면 ── */
+/* ── 로그인 ── */
 #loginScreen {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   min-height: 100vh; gap: 1.5rem; padding: 2rem;
@@ -835,14 +1062,12 @@ body { font-family: -apple-system, "Pretendard", sans-serif; background: var(--b
 
 /* ── 앱 레이아웃 ── */
 #appScreen { display: none; max-width: 680px; margin: 0 auto; padding: 1rem; }
-
 .top-bar {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 1.25rem; flex-wrap: wrap; gap: 10px;
 }
 .title { font-size: 18px; font-weight: 500; }
 .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
 .user-inline { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text2); min-width: 0; overflow: hidden; }
 .user-email { font-weight: 500; color: var(--text2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 #logoutBtn {
@@ -850,22 +1075,24 @@ body { font-family: -apple-system, "Pretendard", sans-serif; background: var(--b
   border-radius: var(--radius); background: none; color: var(--text2); cursor: pointer;
 }
 #logoutBtn:hover { background: var(--bg3); }
-
 select {
   height: 36px; padding: 0 10px; border: 0.5px solid var(--border2);
   border-radius: var(--radius); background: var(--bg); color: var(--text);
   font-size: 14px; cursor: pointer;
 }
 
+/* ── 뱃지 ── */
 .badge {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 12px; padding: 4px 10px; border-radius: var(--radius);
 }
 .badge i { font-size: 13px; }
-.badge-open   { background: var(--green-bg); color: var(--green-tx); }
-.badge-locked { background: var(--red-bg);   color: var(--red-tx); }
-.badge-muted  { background: var(--bg3);       color: var(--text2); }
+.badge-open     { background: var(--green-bg); color: var(--green-tx); }
+.badge-locked   { background: var(--red-bg);   color: var(--red-tx); }
+.badge-muted    { background: var(--bg3);       color: var(--text2); }
+.badge-complete { background: var(--blue-bg);   color: var(--blue-tx); }
 
+/* ── 탭 ── */
 .tab-bar {
   display: flex; gap: 2px; border-bottom: 0.5px solid var(--border);
   margin-bottom: 1rem;
@@ -886,14 +1113,19 @@ select {
   background: var(--bg); color: var(--text2); cursor: pointer;
 }
 .day-btn.active {
-  border-color: var(--border2); color: var(--text); font-weight: 500;
-  background: var(--bg2);
+  border-color: var(--border2); color: var(--text); font-weight: 500; background: var(--bg2);
 }
+/* 공휴일 요일 버튼 */
+.day-btn-holiday { border-color: #ef4444 !important; color: #ef4444 !important; }
+.day-btn-holiday.active { background: #ef4444 !important; color: #fff !important; }
+
 .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem; }
 .menu-card {
   background: var(--bg2); border-radius: var(--radius);
   padding: 14px; border: 0.5px solid var(--border);
+  transition: opacity 0.2s;
 }
+.menu-card-off { opacity: 0.4; pointer-events: none; }
 .menu-label { font-size: 12px; color: var(--text2); margin-bottom: 10px; }
 .qty-control { display: flex; align-items: center; gap: 10px; }
 .qty-btn {
@@ -901,8 +1133,31 @@ select {
   border-radius: var(--radius); background: var(--bg); color: var(--text);
   font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
-.qty-btn:hover { background: var(--bg3); }
+.qty-btn:hover:not(:disabled) { background: var(--bg3); }
+.qty-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .qty-val { font-size: 22px; font-weight: 500; min-width: 32px; text-align: center; }
+
+/* 공휴일 배너 */
+.holiday-banner {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; background: var(--hol-bg); color: var(--hol-tx);
+  border-radius: var(--radius); font-size: 13px; font-weight: 500;
+}
+
+/* ── 입력 완료 버튼 ── */
+.submit-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; padding: 12px;
+  background: var(--blue-bg); border: none;
+  border-radius: var(--radius); color: var(--blue-tx);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.submit-btn:hover { opacity: 0.85; }
+.submit-btn-undo {
+  background: var(--bg2); color: var(--text2);
+  border: 0.5px solid var(--border2) !important;
+}
 
 /* ── 집계 탭 ── */
 .dept-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1.25rem; }
@@ -915,6 +1170,12 @@ select {
 .td-label { text-align: center !important; }
 .td-total { font-weight: 500; }
 .tr-total td { background: var(--bg2); font-weight: 500; }
+/* 공휴일 행/셀 */
+.tr-holiday td  { background: var(--hol-cell); color: var(--text3); }
+.th-holiday     { background: var(--hol-cell) !important; color: var(--hol-tx) !important; }
+.td-holiday     { background: var(--hol-cell); color: var(--text3); }
+.td-hol-msg     { font-size: 11px; color: var(--hol-tx); font-style: italic; }
+.hol-dot        { color: #ef4444; font-size: 9px; margin-left: 2px; vertical-align: middle; }
 
 /* ── 확정 버튼 ── */
 .action-bar { display: flex; gap: 8px; margin-top: 1.25rem; }
@@ -924,7 +1185,6 @@ select {
   cursor: pointer; font-weight: 500;
 }
 #confirmBtn:hover:not(:disabled) { opacity: 0.85; }
-#confirmBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 #unlockBtn {
   flex: 1; padding: 10px; background: var(--amber-bg); border: none;
   border-radius: var(--radius); color: var(--amber-tx); font-size: 14px;
@@ -937,9 +1197,11 @@ select {
   border-radius: var(--radius); padding: 12px 14px;
   font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 1rem;
 }
-.notice-danger { background: var(--red-bg);   color: var(--red-tx); }
-.notice-warn   { background: var(--amber-bg); color: var(--amber-tx); }
+.notice-danger  { background: var(--red-bg);   color: var(--red-tx); }
+.notice-warn    { background: var(--amber-bg); color: var(--amber-tx); }
+.notice-success { background: var(--green-bg); color: var(--green-tx); }
 
+/* ── 달력 ── */
 .cal-wrap {
   background: var(--bg2); border: 0.5px solid var(--border);
   border-radius: var(--radius); padding: 8px 10px; margin-bottom: 1rem;
@@ -951,21 +1213,32 @@ select {
 .cal-dow-row { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 2px; }
 .cal-dow    { text-align: center; font-size: 10px; color: var(--text3); padding: 2px 0; }
 .cal-grid   { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
-.cal-cell   { text-align: center; padding: 4px 2px; font-size: 12px; border-radius: 4px; color: var(--text3); }
+.cal-cell   { text-align: center; padding: 4px 2px; font-size: 12px; border-radius: 4px; color: var(--text3); position: relative; }
 .cal-disabled { color: var(--text3); }
 .cal-monday { color: var(--text); cursor: pointer; font-weight: 500; }
 .cal-monday:hover { background: var(--bg3); }
-.cal-selected { background: var(--text) !important; color: var(--bg) !important; }
+.cal-sat    { color: #3b82f6 !important; cursor: pointer; font-weight: 500; }
+.cal-sat:hover { background: var(--bg3); }
+.cal-sun    { color: #ef4444 !important; }
+.cal-selected     { background: var(--text) !important; color: var(--bg) !important; }
+.cal-sat-selected { background: #3b82f6 !important; color: #fff !important; }
 .cal-today  { outline: 1.5px solid var(--border2); }
 .cal-locked { opacity: 0.5; }
-.cal-hint   { font-size: 10px; color: var(--text3); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+/* 평일 공휴일 */
+.cal-weekday-hol { color: #ef4444 !important; }
+.cal-hol-dot {
+  display: block; width: 4px; height: 4px;
+  background: #ef4444; border-radius: 50%;
+  margin: 1px auto 0;
+}
+.cal-hint { font-size: 10px; color: var(--text3); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
 .cal-dow-sat { color: #3b82f6 !important; }
-.cal-sat    { color: #3b82f6 !important; cursor: pointer; font-weight: 500; }
 .cal-dow-sun { color: #ef4444 !important; }
-.cal-sun    { color: #ef4444 !important; }
 .day-btn-sat { border-color: #3b82f6 !important; color: #3b82f6 !important; }
 .day-btn-sat.active { background: #3b82f6 !important; color: #fff !important; border-color: #3b82f6 !important; }
 .tr-month-header td { background: var(--bg2); font-weight: 500; font-size: 13px; }
+
+/* ── 토스트 ── */
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   background: var(--bg); border: 0.5px solid var(--border2);
