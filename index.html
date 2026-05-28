@@ -196,9 +196,10 @@ function subscribeWeek() {
   unsubscribe = onSnapshot(ref, snap => {
     weekData = snap.exists()
       ? snap.data()
-      : { locked: false, orders: {}, submitted: {} };
+      : { locked: false, satLocked: false, orders: {}, submitted: {} };
     if (!weekData.orders)    weekData.orders = {};
     if (!weekData.submitted) weekData.submitted = {};
+    if (weekData.satLocked === undefined) weekData.satLocked = false;
     if (isSaturdayMode) {
       currentMenus = (weekData.satMenus && weekData.satMenus.length > 0) ? weekData.satMenus : [...DEFAULT_MENUS];
     } else {
@@ -210,10 +211,15 @@ function subscribeWeek() {
 }
 
 // ─── Firestore 저장 ──────────────────────────────────────────
+// 현재 모드의 잠금 상태 반환
+function isCurrentModeLocked() {
+  return isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
+}
+
 async function saveQty(dept, day, menu, val) {
   const ref  = doc(db, "weeks", currentWeekKey);
   const snap = await getDoc(ref);
-  const data = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
+  const data = snap.exists() ? snap.data() : { locked: false, satLocked: false, orders: {}, submitted: {} };
   if (!data.orders)           data.orders = {};
   if (!data.submitted)        data.submitted = {};
   if (!data.orders[dept])     data.orders[dept] = {};
@@ -222,24 +228,34 @@ async function saveQty(dept, day, menu, val) {
   await setDoc(ref, data);
 }
 
-// ─── 확정 ────────────────────────────────────────────────────
+// ─── 확정 (평일/토요일 독립) ──────────────────────────────────
 async function confirmWeek() {
   if (!isAdmin) return;
-  if (weekData.locked) { toast("이미 확정된 주입니다."); return; }
-  if (!confirm("이번 주를 확정하시겠습니까?\n확정 후에는 모든 부서의 수정이 불가합니다.")) return;
-  await updateDoc(doc(db, "weeks", currentWeekKey), { locked: true });
-  toast("✓ 확정 완료. 수정이 잠겼습니다.");
+  const lockField = isSaturdayMode ? "satLocked" : "locked";
+  const label     = isSaturdayMode ? "토요일" : "이번 주 평일";
+  if (weekData[lockField]) { toast(`이미 확정된 ${label}입니다.`); return; }
+  if (!confirm(`${label}을(를) 확정하시겠습니까?\n확정 후에는 모든 부서의 수정이 불가합니다.`)) return;
+  const ref  = doc(db, "weeks", currentWeekKey);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, { [lockField]: true });
+  } else {
+    await setDoc(ref, { locked: false, satLocked: false, orders: {}, submitted: {}, [lockField]: true });
+  }
+  toast(`✓ ${label} 확정 완료. 수정이 잠겼습니다.`);
 }
 
 window.unlockWeek = async function() {
   if (!isAdmin) return;
-  if (!confirm("확정을 해제하고 수정 가능 상태로 되돌리겠습니까?")) return;
+  const lockField = isSaturdayMode ? "satLocked" : "locked";
+  const label     = isSaturdayMode ? "토요일" : "이번 주 평일";
+  if (!confirm(`${label} 확정을 해제하고 수정 가능 상태로 되돌리겠습니까?`)) return;
   const ref = doc(db, "weeks", currentWeekKey);
   const snap = await getDoc(ref);
   if (snap.exists()) {
-    await updateDoc(ref, { locked: false });
+    await updateDoc(ref, { [lockField]: false });
   } else {
-    await setDoc(ref, { locked: false, orders: {}, submitted: {} });
+    await setDoc(ref, { locked: false, satLocked: false, orders: {}, submitted: {} });
   }
   toast("잠금이 해제되었습니다. 수정 가능합니다.");
 };
@@ -248,28 +264,34 @@ window.unlockWeek = async function() {
 window.submitDept = async function() {
   const dept = currentDept;
   if (!dept) return;
-  if (weekData.locked) { toast("확정된 주입니다. 수정 불가."); return; }
+  if (isCurrentModeLocked()) {
+    toast(isSaturdayMode ? "확정된 토요일입니다." : "확정된 평일 주입니다.");
+    return;
+  }
 
-  const already = weekData.submitted?.[dept] === true;
+  // 평일/토요일 완료 키를 분리
+  const submitKey = isSaturdayMode ? `${dept}_sat` : `${dept}_week`;
+  const already   = weekData.submitted?.[submitKey] === true;
+  const modeLabel = isSaturdayMode ? "토요일" : "이번 주 평일";
 
   if (already) {
     if (!confirm("입력 완료를 취소하고 수정 모드로 전환하시겠습니까?")) return;
     const ref  = doc(db, "weeks", currentWeekKey);
     const snap = await getDoc(ref);
-    const data = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
+    const data = snap.exists() ? snap.data() : { locked: false, satLocked: false, orders: {}, submitted: {} };
     if (!data.submitted) data.submitted = {};
-    data.submitted[dept] = false;
+    data.submitted[submitKey] = false;
     await setDoc(ref, data);
     toast("수정 모드로 전환되었습니다.");
   } else {
-    if (!confirm(`${dept}의 이번 주 수량 입력을 완료 처리하시겠습니까?\n완료 후엔 수량 변경이 잠기고,\n'수정하기' 버튼으로 다시 열 수 있습니다.`)) return;
+    if (!confirm(`${dept}의 ${modeLabel} 수량 입력을 완료 처리하시겠습니까?\n완료 후엔 수량 변경이 잠기고,\n'수정하기' 버튼으로 다시 열 수 있습니다.`)) return;
     const ref  = doc(db, "weeks", currentWeekKey);
     const snap = await getDoc(ref);
-    const data = snap.exists() ? snap.data() : { locked: false, orders: {}, submitted: {} };
+    const data = snap.exists() ? snap.data() : { locked: false, satLocked: false, orders: {}, submitted: {} };
     if (!data.submitted) data.submitted = {};
-    data.submitted[dept] = true;
+    data.submitted[submitKey] = true;
     await setDoc(ref, data);
-    toast(`✓ ${dept} 입력 완료 처리되었습니다.`);
+    toast(`✓ ${dept} ${modeLabel} 입력 완료 처리되었습니다.`);
   }
 };
 
@@ -278,7 +300,8 @@ function getQty(dept, day, menu) {
   try { return weekData.orders[dept][day][menu] || 0; } catch { return 0; }
 }
 function isDeptSubmitted(dept) {
-  return weekData.submitted?.[dept] === true;
+  const key = isSaturdayMode ? `${dept}_sat` : `${dept}_week`;
+  return weekData.submitted?.[key] === true;
 }
 function deptHasData(dept) {
   try {
@@ -321,7 +344,10 @@ window.changeQty = async function(menu, delta) {
   const dept = currentDept || (isAdmin ? "기획실" : null);
   if (!dept) { toast("등록되지 않은 계정입니다."); return; }
   currentDept = dept;
-  if (weekData.locked) { toast("확정된 주입니다. 수정 불가."); return; }
+  if (isCurrentModeLocked()) {
+    toast(isSaturdayMode ? "확정된 토요일입니다. 수정 불가." : "확정된 주(평일)입니다. 수정 불가.");
+    return;
+  }
 
   // 공휴일 차단
   if (!isSaturdayMode) {
@@ -353,11 +379,12 @@ window.changeQty = async function(menu, delta) {
 
 // ─── 렌더 ────────────────────────────────────────────────────
 function render() {
-  const locked = weekData.locked;
+  // 현재 모드 기준 잠금 상태
+  const locked = isCurrentModeLocked();
 
   document.getElementById("statusBadge").className   = "badge " + (locked ? "badge-locked" : "badge-open");
   document.getElementById("statusBadge").innerHTML   = locked
-    ? '<i class="ti ti-lock"></i> 확정됨'
+    ? `<i class="ti ti-lock"></i> ${isSaturdayMode ? "토요일 확정됨" : "평일 확정됨"}`
     : isSaturdayMode
       ? '<i class="ti ti-calendar-week"></i> 토요일 입력'
       : '<i class="ti ti-lock-open"></i> 입력 중';
@@ -372,9 +399,14 @@ function render() {
 
   const cb = document.getElementById("confirmBtn");
   const ub = document.getElementById("unlockBtn");
-  const locked2 = weekData.locked || false;
-  if (cb) { cb.style.display = isAdmin && !locked2 ? "" : "none"; cb.textContent = "이번 주 확정"; }
-  if (ub) ub.style.display = isAdmin && locked2 ? "" : "none";
+  if (cb) {
+    cb.style.display = isAdmin && !locked ? "" : "none";
+    cb.textContent   = isSaturdayMode ? "토요일 확정" : "평일 확정";
+  }
+  if (ub) {
+    ub.style.display = isAdmin && locked ? "" : "none";
+    ub.textContent   = isSaturdayMode ? "토요일 잠금 해제" : "평일 잠금 해제";
+  }
   const bt = document.getElementById("billingTab");
   if (bt) bt.style.display = isAdmin ? "" : "none";
 
@@ -402,19 +434,20 @@ function renderInputTab(locked) {
     currentDept = deptSel.value;
   }
 
-  const wLocked = weekData.locked || false;
+  const wLocked   = isCurrentModeLocked();
+  const modeLabel = isSaturdayMode ? "토요일" : "이번 주 평일";
   const deptSubmitted = !isAdmin && isDeptSubmitted(currentDept);
 
   // inputArea 내용 결정
   let inputAreaHTML = "";
   if (wLocked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
-      `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
+      `<div class="notice notice-danger"><i class="ti ti-lock"></i> ${modeLabel}이(가) 확정되었습니다. 수정 불가.</div>`;
     renderMyWeekTable();
     return;
   }
   if (wLocked && isAdmin) {
-    inputAreaHTML = `<div class="notice notice-warn" style="margin-bottom:1rem"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정 가능합니다.</div>`;
+    inputAreaHTML = `<div class="notice notice-warn" style="margin-bottom:1rem"><i class="ti ti-lock"></i> ${modeLabel} 확정됨 — 집계표 탭에서 잠금 해제 후 수정 가능합니다.</div>`;
   }
 
   // 요일 탭 (공휴일 표시)
