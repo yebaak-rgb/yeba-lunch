@@ -454,13 +454,14 @@ function renderWeekdaySummary() {
     </div>`;
 
   // ② 요일별 표 (행=요일, 열=메뉴) - 기존 유지
+  const WDB = "border-left:2px solid var(--border2)";
   const rows = DAYS.map(d => {
     const vals = currentMenus.map(m => depts.reduce((s, dept) => s + getQty(dept, d, m), 0));
     const total = vals.reduce((s,v) => s+v, 0);
     return `<tr>
       <td class="td-label">${d}</td>
-      ${vals.map(v => `<td>${v||""}</td>`).join("")}
-      <td class="td-total">${total||""}</td>
+      ${vals.map(v => `<td style="${WDB}">${v||""}</td>`).join("")}
+      <td class="td-total" style="${WDB}">${total||""}</td>
     </tr>`;
   }).join("");
   const menuTotals = currentMenus.map(m =>
@@ -922,9 +923,9 @@ select {
 .s-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 .s-table th {
   background: var(--bg2); padding: 8px 6px; text-align: center;
-  border: 0.5px solid var(--border); font-weight: 500; font-size: 12px; color: var(--text2);
+  border: 1px solid var(--border2); font-weight: 500; font-size: 12px; color: var(--text2);
 }
-.s-table td { padding: 8px 6px; text-align: center; border: 0.5px solid var(--border); }
+.s-table td { padding: 8px 6px; text-align: center; border: 1px solid var(--border2); }
 .td-label { text-align: center !important; }
 .td-total { font-weight: 500; }
 .tr-total td { background: var(--bg2); font-weight: 500; }
