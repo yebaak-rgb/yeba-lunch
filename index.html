@@ -399,14 +399,14 @@ function renderWeekdaySummary() {
   const BORDER_STYLE = "border-left:2px solid var(--border2)";
   const header1 = `<th rowspan="2" style="vertical-align:middle;font-size:12px;color:var(--text2)">${wkLabelDept}</th>`
     + DAYS.map((d,i) =>
-      `<th colspan="${menuCount}" style="text-align:center;border-bottom:none;${i>0?BORDER_STYLE:""}">${d}</th>`
-    ).join("") + `<th rowspan="2" style="vertical-align:middle">합계</th>`;
+      `<th colspan="${menuCount}" style="text-align:center;border-bottom:none;${BORDER_STYLE}">${d}</th>`
+    ).join("") + `<th rowspan="2" style="vertical-align:middle;${BORDER_STYLE}">합계</th>`;
 
   // 헤더 2행: 메뉴 약칭 반복, 요일 첫번째 메뉴에 경계선
   const menuAbbr = m => m.length > 2 ? m.slice(0,2) : m;
   const header2 = DAYS.map((d,di) =>
     currentMenus.map((m,mi) =>
-      `<th style="font-size:11px;font-weight:400;color:var(--text2);${di>0&&mi===0?BORDER_STYLE:""}">${menuAbbr(m)}</th>`
+      `<th style="font-size:11px;font-weight:400;color:var(--text2);${mi===0?BORDER_STYLE:""}">${menuAbbr(m)}</th>`
     ).join("")
   ).join("");
 
@@ -417,18 +417,18 @@ function renderWeekdaySummary() {
       currentMenus.map((m,mi) => {
         const v = getQty(dept, d, m);
         rowTotal += v;
-        const border = di>0&&mi===0 ? `style="${BORDER_STYLE}"` : "";
+        const border = mi===0 ? `style="${BORDER_STYLE}"` : "";
         return `<td ${border}>${v||""}</td>`;
       }).join("")
     ).join("");
-    return `<tr><td class="td-label">${dept}</td>${cells}<td class="td-total">${rowTotal||""}</td></tr>`;
+    return `<tr><td class="td-label">${dept}</td>${cells}<td class="td-total" style="${BORDER_STYLE}">${rowTotal||""}</td></tr>`;
   }).join("");
 
   // 합계 행
   const totalCells = DAYS.map((d,di) =>
     currentMenus.map((m,mi) => {
       const v = depts.reduce((s,dept) => s + getQty(dept,d,m), 0);
-      const border = di>0&&mi===0 ? `style="${BORDER_STYLE}"` : "";
+      const border = mi===0 ? `style="${BORDER_STYLE}"` : "";
       return `<td ${border}>${v||""}</td>`;
     }).join("")
   ).join("");
@@ -475,17 +475,20 @@ function renderWeekdaySummary() {
     return `${w.mon.getMonth()+1}/${w.mon.getDate()}`;
   })();
 
+  const WD_BORDER = "border-left:2px solid var(--border2)";
   document.getElementById("summaryTable").innerHTML = `
     <table class="s-table">
       <thead><tr>
-        <th style="color:var(--text2);font-size:12px">${wkLabel}</th>${currentMenus.map(m => `<th>${m}</th>`).join("")}<th>합계</th>
+        <th style="color:var(--text2);font-size:12px">${wkLabel}</th>
+        ${currentMenus.map(m => `<th style="${WD_BORDER}">${m}</th>`).join("")}
+        <th style="${WD_BORDER}">합계</th>
       </tr></thead>
       <tbody>
-        ${rows}
+        ${rows.replace(/<td>/g, `<td style="${WD_BORDER}">`)}
         <tr class="tr-total">
           <td class="td-label">합계</td>
-          ${menuTotals.map(v => `<td>${v||""}</td>`).join("")}
-          <td class="td-total">${grandTotal||""}</td>
+          ${menuTotals.map(v => `<td style="${WD_BORDER}">${v||""}</td>`).join("")}
+          <td class="td-total" style="${WD_BORDER}">${grandTotal||""}</td>
         </tr>
       </tbody>
     </table>`;
