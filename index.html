@@ -134,7 +134,7 @@ function subscribeWeek() {
   if (unsubscribe) unsubscribe();
   const ref = doc(db, "weeks", currentWeekKey);
   unsubscribe = onSnapshot(ref, snap => {
-    weekData = snap.exists() ? snap.data() : { locked: false, orders: {} };
+    weekData = snap.exists() ? snap.data() : { locked: false, satLocked: false, orders: {} };
     if (!weekData.orders) weekData.orders = {};
     if (isSaturdayMode) {
       currentMenus = (weekData.satMenus && weekData.satMenus.length > 0) ? weekData.satMenus : [...DEFAULT_MENUS];
@@ -160,23 +160,34 @@ async function saveQty(dept, day, menu, val) {
 
 async function confirmWeek() {
   if (!isAdmin) return;
-  if (weekData.locked) { toast("이미 확정된 주입니다."); return; }
-  if (!confirm("이번 주를 확정하시겠습니까?\n확정 후에는 모든 부서의 수정이 불가합니다.")) return;
-  await updateDoc(doc(db, "weeks", currentWeekKey), { locked: true });
-  toast("✓ 확정 완료. 수정이 잠겼습니다.");
+  const lockKey = isSaturdayMode ? "satLocked" : "locked";
+  const already = isSaturdayMode ? weekData.satLocked : weekData.locked;
+  const label = isSaturdayMode ? "토요일" : "평일";
+  if (already) { toast(`이미 ${label} 확정된 주입니다.`); return; }
+  if (!confirm(`${label} 수량을 확정하시겠습니까?\n확정 후에는 모든 부서의 수정이 불가합니다.`)) return;
+  const ref = doc(db, "weeks", currentWeekKey);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, { [lockKey]: true });
+  } else {
+    await setDoc(ref, { locked: false, satLocked: false, orders: {}, [lockKey]: true });
+  }
+  toast(`✓ ${label} 확정 완료. 수정이 잠겼습니다.`);
 }
 
 window.unlockWeek = async function() {
   if (!isAdmin) return;
-  if (!confirm("확정을 해제하고 수정 가능 상태로 되돌리겠습니까?")) return;
+  const lockKey = isSaturdayMode ? "satLocked" : "locked";
+  const label = isSaturdayMode ? "토요일" : "평일";
+  if (!confirm(`${label} 확정을 해제하고 수정 가능 상태로 되돌리겠습니까?`)) return;
   const ref = doc(db, "weeks", currentWeekKey);
   const snap = await getDoc(ref);
   if (snap.exists()) {
-    await updateDoc(ref, { locked: false });
+    await updateDoc(ref, { [lockKey]: false });
   } else {
-    await setDoc(ref, { locked: false, orders: {} });
+    await setDoc(ref, { locked: false, satLocked: false, orders: {} });
   }
-  toast("잠금이 해제되었습니다. 수정 가능합니다.");
+  toast(`${label} 잠금이 해제되었습니다.`);
 };
 
 // ─── 헬퍼 ────────────────────────────────────────────────────
@@ -241,12 +252,14 @@ window.changeQty = async function(menu, delta) {
 
 // ─── 렌더 ────────────────────────────────────────────────────
 function render() {
-  const locked = weekData.locked;
+  const locked = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
 
   // 상태 뱃지
   document.getElementById("statusBadge").className   = "badge " + (locked ? "badge-locked" : "badge-open");
+  const satLockedState = weekData.satLocked || false;
+  const weekLockedState = weekData.locked || false;
   document.getElementById("statusBadge").innerHTML   = locked
-    ? '<i class="ti ti-lock"></i> 확정됨'
+    ? `<i class="ti ti-lock"></i> ${isSaturdayMode ? "토요일 " : "평일 "}확정됨`
     : isSaturdayMode
       ? '<i class="ti ti-calendar-week"></i> 토요일 입력'
       : '<i class="ti ti-lock-open"></i> 입력 중';
@@ -262,7 +275,7 @@ function render() {
   // 확정 버튼 & 정산탭 (관리자만 표시)
   const cb = document.getElementById("confirmBtn");
   const ub = document.getElementById("unlockBtn");
-  const locked2 = weekData.locked || false;
+  const locked2 = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
   if (cb) { cb.style.display = isAdmin && !locked2 ? "" : "none"; cb.textContent = "이번 주 확정"; }
   if (ub) ub.style.display = isAdmin && locked2 ? "" : "none";
   const bt = document.getElementById("billingTab");
