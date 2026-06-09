@@ -306,7 +306,7 @@ function renderInputTab(locked) {
     currentDept = deptSel.value;
   }
 
-  const wLocked = weekData.locked || false;
+  const wLocked = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
   if (wLocked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
