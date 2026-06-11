@@ -324,12 +324,11 @@ function renderInputTab(locked) {
     return;
   }
 
+  // inputArea 항상 초기화
+  document.getElementById("inputArea").innerHTML = "";
   if (wLocked && isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-warn" style="margin-bottom:1rem"><i class="ti ti-lock"></i> 확정된 주입니다. 집계표 탭에서 잠금 해제 후 수정 가능합니다.</div>`;
-    // 메뉴카드는 계속 렌더 (잠금 해제 후 바로 수정 가능하도록)
-  } else {
-    document.getElementById("inputArea").innerHTML = "";
   }
 
   // 요일 탭
