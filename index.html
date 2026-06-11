@@ -244,7 +244,8 @@ window.changeQty = async function(menu, delta) {
   const dept = currentDept || (isAdmin ? "기획실" : null);
   if (!dept) { toast("등록되지 않은 계정입니다."); return; }
   currentDept = dept;
-  if (weekData.locked) { toast("확정된 주입니다. 수정 불가."); return; }
+  const cqLocked = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
+  if (cqLocked) { toast("확정된 주입니다. 수정 불가."); return; }
   const cur = getQty(currentDept, currentDay, menu);
   const nv  = Math.max(0, cur + delta);
   // 낙관적 업데이트 (UI 즉시 반영)
@@ -316,7 +317,6 @@ function renderInputTab(locked) {
   }
 
   const wLocked = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
-  console.log("renderInputTab wLocked:", wLocked, "isSaturdayMode:", isSaturdayMode, "satLocked:", weekData.satLocked, "locked:", weekData.locked);
   if (wLocked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
@@ -752,7 +752,7 @@ function renderCalendar() {
     const isSatSelected = isSaturdayMode && isSaturday && wk === currentWeekKey;
     const isSelected = (!isSaturdayMode && isMonday && wk === currentWeekKey) || isSatSelected;
     const isToday = date.toDateString() === new Date().toDateString();
-    const locked = wk ? (weekData && weekData.locked) : false;
+    const locked = wk ? (isSaturday ? (weekData && weekData.satLocked) : (weekData && weekData.locked)) : false;
 
     let cls = "cal-cell";
     if (!isMonday) cls += " cal-disabled";
@@ -807,7 +807,6 @@ window.selectSaturday = function(y, m, d) {
   currentWeekKey = wk;
   currentDay = "토";
   isSaturdayMode = true;
-  console.log("selectSaturday:", wk, "satLocked:", weekData.satLocked, "locked:", weekData.locked, "isSaturdayMode:", isSaturdayMode);
   subscribeWeek();
 };
 
