@@ -316,6 +316,7 @@ function renderInputTab(locked) {
   }
 
   const wLocked = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
+  console.log("renderInputTab wLocked:", wLocked, "isSaturdayMode:", isSaturdayMode, "satLocked:", weekData.satLocked, "locked:", weekData.locked);
   if (wLocked && !isAdmin) {
     document.getElementById("inputArea").innerHTML =
       `<div class="notice notice-danger"><i class="ti ti-lock"></i> 이번 주는 확정되었습니다. 수정 불가.</div>`;
@@ -802,12 +803,12 @@ window.selectWeekByMonday = function(y, m, d) {
 
 window.selectSaturday = function(y, m, d) {
   const date = new Date(y, m, d);
-  // 토요일이 속한 주의 월요일 찾기 (토요일 - 5일)
   const mon = new Date(date); mon.setDate(date.getDate() - 5);
   const wk = `2026-W${String(getISOWeek(mon)).padStart(2,"0")}`;
   currentWeekKey = wk;
   currentDay = "토";
   isSaturdayMode = true;
+  console.log("selectSaturday:", wk, "satLocked:", weekData.satLocked, "locked:", weekData.locked, "isSaturdayMode:", isSaturdayMode);
   subscribeWeek();
 };
 
