@@ -132,6 +132,15 @@ document.addEventListener("DOMContentLoaded", () => {
 // ─── Firestore 실시간 구독 ────────────────────────────────────
 function subscribeWeek() {
   if (unsubscribe) unsubscribe();
+  // 모드 전환 시 즉시 render (같은 주 내 평일↔토요일 전환 대응)
+  if (weekData && Object.keys(weekData).length > 0) {
+    if (isSaturdayMode) {
+      currentMenus = (weekData.satMenus && weekData.satMenus.length > 0) ? weekData.satMenus : [...DEFAULT_MENUS];
+    } else {
+      currentMenus = (weekData.menus && weekData.menus.length > 0) ? weekData.menus : [...DEFAULT_MENUS];
+    }
+    render();
+  }
   const ref = doc(db, "weeks", currentWeekKey);
   unsubscribe = onSnapshot(ref, snap => {
     weekData = snap.exists() ? snap.data() : { locked: false, satLocked: false, orders: {} };
