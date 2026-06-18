@@ -241,7 +241,7 @@ window.selectDay = function(d) { currentDay = d; render(); };
 
 // ─── 수량 변경 ───────────────────────────────────────────────
 window.changeQty = async function(menu, delta) {
-  const dept = currentDept || (isAdmin ? "기획실" : null);
+  const dept = currentDept || (isAdmin ? "경지실" : null);
   if (!dept) { toast("등록되지 않은 계정입니다."); return; }
   currentDept = dept;
   const cqLocked = isSaturdayMode ? (weekData.satLocked || false) : (weekData.locked || false);
@@ -311,7 +311,7 @@ function renderInputTab(locked) {
         const o = document.createElement("option");
         o.value = d; o.textContent = d; deptSel.appendChild(o);
       });
-      deptSel.value = currentDept || "기획실";
+      deptSel.value = currentDept || "경지실";
     }
     currentDept = deptSel.value;
   }
@@ -581,7 +581,16 @@ window.renderBillingTab = async function() {
   document.getElementById("billingTable").innerHTML =
     `<p style="color:var(--text2);font-size:13px;padding:1rem 0">불러오는 중...</p>`;
 
-  const weeksInMonth = WEEKS.filter(w => w.mon && w.mon.getMonth() === targetMonth);
+  // 해당 월의 평일(월~금)이 하나라도 포함된 주차 모두
+  const weeksInMonth = WEEKS.filter(w => {
+    if (!w.mon) return false;
+    for (let off = 0; off < 5; off++) {
+      const dd = new Date(w.mon);
+      dd.setDate(w.mon.getDate() + off);
+      if (dd.getMonth() === targetMonth) return true;
+    }
+    return false;
+  });
 
   // 캐시에 없는 주차는 Firestore에서 fetch
   await Promise.all(weeksInMonth.map(async w => {
@@ -597,14 +606,27 @@ window.renderBillingTab = async function() {
 
   let rows = "";
   let totalQty = 0;
+  const WEEKDAYS = ["월","화","수","목","금"];
+  const dayOffset = { "월":0, "화":1, "수":2, "목":3, "금":4 };
 
   weeksInMonth.forEach(w => {
     const wData = allWeeksCache[w.key];
-    const WEEKDAYS = ["월","화","수","목","금"];
-    const qty = wData ? DEPTS_LIST().reduce((s, dept) =>
-      s + WEEKDAYS.reduce((s2, d) =>
-        s2 + currentMenus.reduce((s3, menu) =>
-          s3 + (wData.orders?.[dept]?.[d]?.[menu] || 0), 0), 0), 0) : 0;
+    if (!wData) return;
+    // 이 주의 각 평일 날짜가 targetMonth에 속하는 것만 합산 (월 경계 처리)
+    let qty = 0;
+    WEEKDAYS.forEach(d => {
+      const dayDate = new Date(w.mon);
+      dayDate.setDate(w.mon.getDate() + dayOffset[d]);
+      if (dayDate.getMonth() !== targetMonth) return; // 다른 달 날짜는 제외
+      // 메뉴 종류 무관하게 그날 전체 수량 합산
+      DEPTS_LIST().forEach(dept => {
+        const dayMenus = wData.orders?.[dept]?.[d] || {};
+        Object.values(dayMenus).forEach(v => { qty += (v || 0); });
+      });
+    });
+    if (qty === 0) {
+      // 그래도 해당 주 표시 (0으로)
+    }
     totalQty += qty;
     const label = `${w.mon.getMonth()+1}월 ${w.mon.getDate()}일`;
     rows += `<tr>
@@ -1034,7 +1056,7 @@ select {
 <div id="appScreen">
   <div class="top-bar">
     <div style="display:flex;align-items:center;gap:10px;min-width:0">
-      <span class="title">🍱 점심 수량 관리</span>
+      <span class="title">🍱 점심 수량 관리 <span style="font-size:10px;color:var(--text3)">v6.11</span></span>
       <span class="user-inline">
         <span id="userEmail" class="user-email"></span>
         <span id="userDept"></span>
